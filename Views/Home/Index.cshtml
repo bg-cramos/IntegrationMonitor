@@ -1,68 +1,42 @@
 ﻿@model IntegrationMonitor.Models.IntegrationStatus
-
 @{
     ViewBag.Title = "NATS INTEGRACION";
 }
-
 <div class="monitor-container">
-
-    <!-- ================================================= -->
     <!-- HEADER -->
-    <!-- ================================================= -->
-
     <div class="monitor-header">
-
         <div class="header-title">
-
             <div class="header-icon">
                 N
             </div>
-
             <div>
                 <h1>NATS INTEGRACION</h1>
-
                 <p>
                     Monitor del servidor y conexiones NATS
                 </p>
             </div>
-
         </div>
-
         <div class="last-update">
-
             <span>
                 Última actualización
             </span>
-
             <strong id="ultimaActualizacion">
                 @Model.UltimaActualizacion.ToString("HH:mm:ss")
             </strong>
-
         </div>
-
     </div>
 
-
-    <!-- ================================================= -->
-    <!-- RESUMEN NATS -->
-    <!-- ================================================= -->
-
+    <!-- RESUMEN -->
     <div class="summary-grid">
-
         <!-- SERVIDOR -->
-
         <div class="summary-card">
-
             <div class="summary-label">
                 SERVIDOR
             </div>
-
             <div class="summary-value">
                 @Model.NatsServer
             </div>
-
-            <div class="summary-status">
-
+            <div class="summary-status" id="natsEstado">
                 @if (Model.NatsConnected)
                 {
                     <span class="status-dot status-green"></span>
@@ -77,410 +51,297 @@
                         DISCONNECTED
                     </span>
                 }
-
             </div>
-
         </div>
 
-
         <!-- SUBJECTS -->
-
         <div class="summary-card">
-
             <div class="summary-label">
                 SUBJECTS ACTIVOS
             </div>
-
             <div id="cantidadSubjects"
                  class="summary-number blue">
-
-                @Model.Subjects.Count
-
+                @(Model.Subjects == null ? 0 : Model.Subjects.Count)
             </div>
-
             <div class="summary-description">
                 Subjects detectados
             </div>
-
         </div>
 
-
         <!-- CONEXIONES -->
-
         <div class="summary-card">
-
             <div class="summary-label">
                 CONEXIONES NATS
             </div>
-
             <div id="cantidadConexiones"
                  class="summary-number blue">
-
-                @Model.NatsConnections.Count
-
+                @(Model.NatsConnections == null ? 0 : Model.NatsConnections.Count)
             </div>
-
             <div class="summary-description">
                 Clientes conectados
             </div>
-
         </div>
 
-
         <!-- ERRORES -->
-
         <div class="summary-card">
-
             <div class="summary-label">
                 ERRORES
             </div>
-
             <div id="errores"
                  class="summary-number red">
-
                 @Model.Errores
-
             </div>
-
             <div class="summary-description">
                 Errores registrados
             </div>
-
         </div>
-
     </div>
 
-
-    <!-- ================================================= -->
-    <!-- SUBJECTS NATS -->
-    <!-- ================================================= -->
-
+    <!-- SUBJECTS -->
     <div class="monitor-panel">
-
         <div class="panel-header">
-
             <div>
-
                 <span class="panel-icon">
                     📡
                 </span>
-
                 <strong>
                     SUBJECTS NATS
                 </strong>
-
             </div>
-
             <span class="panel-counter"
                   id="subjectsResumen">
-
-                @Model.Subjects.Count
-                @(Model.Subjects.Count == 1 ? "subject" : "subjects")
-
+                @(Model.Subjects == null ? 0 : Model.Subjects.Count)
+                @(
+                            Model.Subjects == null ||
+                            Model.Subjects.Count != 1
+                                ? "subjects"
+                                : "subject"
+                )
             </span>
-
         </div>
-
 
         <div id="subjectsContainer"
              class="panel-content">
-
             @if (
                 Model.Subjects == null ||
                 Model.Subjects.Count == 0
             )
             {
                 <div class="empty-state">
-
                     <span class="status-dot status-yellow"></span>
-
                     No hay subjects activos
 
                 </div>
             }
             else
             {
-                foreach (
-                    var subject
-                    in Model.Subjects
-                )
+                foreach (var subject in Model.Subjects)
                 {
-
                     <div class="subject-card">
-
-                        <!-- SUBJECT HEADER -->
-
                         <div class="subject-header">
-
                             <div class="subject-name">
-
                                 <span class="subject-icon">
                                     📡
                                 </span>
-
                                 <strong>
                                     @subject.Subject
                                 </strong>
-
                             </div>
-
                             <div class="subject-connections">
-
                                 <span class="status-dot status-green"></span>
-
                                 @subject.Connections
-                                @(subject.Connections == 1
-                                            ? "conexión"
-                                            : "conexiones")
-
+                                @(
+                                            subject.Connections == 1
+                                                ? "conexión"
+                                                : "conexiones"
+                                )
                             </div>
-
                         </div>
-
-
-                        <!-- CLIENTES -->
 
                         <div class="subject-clients">
-
-                            @foreach (
-                                var client
-                                in subject.Clients
-                            )
+                            @if (subject.Clients != null)
                             {
+                                foreach (var client in subject.Clients)
+                                {
 
-                                <div class="client-row">
 
-                                    <div class="client-main">
+                                    <div class="client-row">
+                                        <div class="client-main">
+                                            <span class="status-dot status-green"></span>
+                                            <a href="@Url.Action(
+                                            "Logs",
+                                            "Home",
+                                            new
+                                            {
+                                                cid = client.Cid,
+                                                subject = subject.Subject,
+                                                consumer =
+                                                    subject.Subject.Equals(
+                                                        "github",
+                                                        StringComparison.OrdinalIgnoreCase
+                                                    )
+                                                        ? "github"
+                                                        : (
+                                                            !string.IsNullOrWhiteSpace(client.Lang) &&
+                                                            client.Lang.Equals(
+                                                                ".NET",
+                                                                StringComparison.OrdinalIgnoreCase
+                                                            )
+                                                                ? "contactformpbp"
+                                                                : "natspython"
+                                                          )
+                                            })"
+                                                                                       class="cid-link">
 
-                                        <span class="status-dot status-green"></span>
 
-                                        <strong>
-                                            Cid @client.Cid
-                                        </strong>
+                                                Cid @client.Cid
+                                            </a>
 
-                                        @if (
-                                            !string.IsNullOrWhiteSpace(
-                                                client.Lang
-                                            )
-                                        )
-                                        {
-                                            <span class="client-lang">
-                                                @client.Lang
-                                            </span>
-                                        }
+                                            @if (!string.IsNullOrWhiteSpace(client.Lang))
+                                            {
+                                                <span class="client-lang">
+                                                    @client.Lang
+                                                </span>
+                                            }
+                                        </div>
 
+                                        <div class="client-details">
+                                            <div>
+                                                <span class="detail-label">
+                                                    IP
+                                                </span>
+                                                <span>
+                                                    @client.Ip
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span class="detail-label">
+                                                    PUERTO
+                                                </span>
+                                                <span>
+                                                    @client.Port
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span class="detail-label">
+                                                    VERSIÓN
+                                                </span>
+                                                <span>
+                                                    @client.Version
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <span class="detail-label">
+                                                    UPTIME
+                                                </span>
+                                                <span>
+                                                    @client.Uptime
+                                                </span>
+                                            </div>
+                                        </div>
                                     </div>
-
-
-                                    <div class="client-details">
-
-                                        <div>
-                                            <span class="detail-label">
-                                                IP
-                                            </span>
-
-                                            <span>
-                                                @client.Ip
-                                            </span>
-                                        </div>
-
-                                        <div>
-                                            <span class="detail-label">
-                                                PUERTO
-                                            </span>
-
-                                            <span>
-                                                @client.Port
-                                            </span>
-                                        </div>
-
-                                        <div>
-                                            <span class="detail-label">
-                                                VERSIÓN
-                                            </span>
-
-                                            <span>
-                                                @client.Version
-                                            </span>
-                                        </div>
-
-                                        <div>
-                                            <span class="detail-label">
-                                                UPTIME
-                                            </span>
-
-                                            <span>
-                                                @client.Uptime
-                                            </span>
-                                        </div>
-
-                                    </div>
-
-                                </div>
-
+                                }
                             }
-
                         </div>
-
                     </div>
-
                 }
             }
-
         </div>
-
     </div>
 
-
-    <!-- ================================================= -->
-    <!-- CONEXIONES NATS -->
-    <!-- ================================================= -->
-
+    <!-- CONEXIONES -->
     <div class="monitor-panel">
-
         <div class="panel-header">
-
             <div>
-
                 <span class="panel-icon">
                     🔌
                 </span>
-
                 <strong>
                     CONEXIONES NATS
                 </strong>
-
             </div>
-
             <span class="panel-counter"
                   id="cantidadConexionesHeader">
-
-                @Model.NatsConnections.Count
-
+                @(Model.NatsConnections == null
+                            ? 0
+                            : Model.NatsConnections.Count)
             </span>
-
         </div>
-
 
         <div id="conexionesContainer"
              class="panel-content">
-
             @if (
                 Model.NatsConnections == null ||
                 Model.NatsConnections.Count == 0
             )
             {
                 <div class="empty-state">
-
                     <span class="status-dot status-yellow"></span>
-
                     No hay conexiones NATS
 
                 </div>
             }
             else
             {
-
-                foreach (
-                    var connection
-                    in Model.NatsConnections
-                )
+                foreach (var connection in Model.NatsConnections)
                 {
-
                     <div class="connection-card">
-
                         <div class="connection-title">
-
                             <div class="connection-client">
-
                                 <span class="status-dot status-green"></span>
-
                                 <strong>
                                     Cid @connection.Cid
                                 </strong>
-
                             </div>
-
-
                             <span class="client-lang">
-
                                 @(
-                                            string.IsNullOrWhiteSpace(
-                                                connection.Lang
-                                            )
-                                            ? "N/A"
-                                            : connection.Lang
+                                            string.IsNullOrWhiteSpace(connection.Lang)
+                                                ? "N/A"
+                                                : connection.Lang
                                 )
-
                             </span>
-
                         </div>
 
-
                         <div class="connection-info">
-
                             <div>
-
                                 <span class="detail-label">
                                     IP
                                 </span>
-
                                 <strong>
                                     @connection.Ip
                                 </strong>
-
                             </div>
-
-
                             <div>
-
                                 <span class="detail-label">
                                     PUERTO
                                 </span>
-
                                 <strong>
                                     @connection.Port
                                 </strong>
-
                             </div>
-
-
                             <div>
-
                                 <span class="detail-label">
                                     VERSIÓN
                                 </span>
-
                                 <strong>
                                     @connection.Version
                                 </strong>
-
                             </div>
-
-
                             <div>
-
                                 <span class="detail-label">
                                     UPTIME
                                 </span>
-
                                 <strong>
                                     @connection.Uptime
                                 </strong>
-
                             </div>
-
                         </div>
 
-
                         <div class="connection-subjects">
-
                             <span class="detail-label">
                                 ESCUCHANDO
                             </span>
-
                             <div class="subject-tags">
-
                                 @if (
                                     connection.SubscriptionsList != null &&
                                     connection.SubscriptionsList.Count > 0
@@ -502,113 +363,65 @@
                                         Sin subjects
                                     </span>
                                 }
-
                             </div>
-
                         </div>
-
                     </div>
-
                 }
-
             }
-
         </div>
-
     </div>
 
-
-    <!-- ================================================= -->
-    <!-- ACTIVIDAD NATS -->
-    <!-- ================================================= -->
-
+    <!-- ACTIVIDAD -->
     <div class="monitor-panel">
-
         <div class="panel-header">
-
             <div>
-
                 <span class="panel-icon">
                     📊
                 </span>
-
                 <strong>
                     ACTIVIDAD NATS
                 </strong>
-
             </div>
-
         </div>
 
-
         <div class="activity-content">
-
             <div class="activity-grid">
-
-                <!-- RECIBIDOS -->
-
                 <div class="activity-card">
-
                     <div class="activity-label">
                         RECIBIDOS
                     </div>
-
                     <div id="recibidos"
                          class="activity-number blue">
-
                         @Model.Recibidos
-
                     </div>
-
                 </div>
 
-
-                <!-- PROCESADOS -->
-
                 <div class="activity-card">
-
                     <div class="activity-label">
                         PROCESADOS
                     </div>
-
                     <div id="procesados"
                          class="activity-number green">
-
                         @Model.Procesados
-
                     </div>
-
                 </div>
 
-
-                <!-- ERRORES -->
-
                 <div class="activity-card">
-
                     <div class="activity-label">
                         ERRORES
                     </div>
-
                     <div id="erroresActividad"
                          class="activity-number red">
-
                         @Model.Errores
-
                     </div>
-
                 </div>
-
             </div>
 
-
             <div class="last-message">
-
                 <span>
                     Último mensaje
                 </span>
-
                 <strong id="ultimoMensaje">
-
                     @if (Model.UltimoMensaje.HasValue)
                     {
                         @Model.UltimoMensaje.Value.ToString(
@@ -619,121 +432,14 @@
                     {
                         @:--
                     }
-
                 </strong>
-
             </div>
-
         </div>
-
     </div>
 
-
-    <!-- ================================================= -->
-    <!-- EVENTOS -->
-    <!-- ================================================= -->
-
-    <div class="monitor-panel">
-
-        <div class="panel-header">
-
-            <div>
-
-                <span class="panel-icon">
-                    📋
-                </span>
-
-                <strong>
-                    ÚLTIMOS EVENTOS
-                </strong>
-
-            </div>
-
-        </div>
-
-
-        <div id="eventos"
-             class="events-container">
-
-            @if (
-                Model.Eventos == null ||
-                Model.Eventos.Count == 0
-            )
-            {
-                <div class="empty-state">
-
-                    <span class="status-dot status-yellow"></span>
-
-                    Sin eventos registrados
-
-                </div>
-            }
-            else
-            {
-                foreach (
-                    var evento
-                    in Model.Eventos
-                )
-                {
-
-                    <div class="event">
-
-                        @if (
-                            evento.Tipo == "OK"
-                        )
-                        {
-                            <span class="status-dot status-green"></span>
-                        }
-                        else if (
-                            evento.Tipo == "ERROR"
-                        )
-                        {
-                            <span class="status-dot status-red"></span>
-                        }
-                        else if (
-                            evento.Tipo == "WARNING"
-                        )
-                        {
-                            <span class="status-dot status-yellow"></span>
-                        }
-                        else
-                        {
-                            <span class="status-dot status-blue"></span>
-                        }
-
-
-                        <strong>
-                            @evento.Fecha.ToString(
-                                "HH:mm:ss"
-                            )
-                        </strong>
-
-
-                        <span>
-                            @evento.Mensaje
-                        </span>
-
-                    </div>
-
-                }
-            }
-
-        </div>
-
-    </div>
-
-</div>
-
-
-<!-- ===================================================== -->
-<!-- ESTILOS -->
-<!-- ===================================================== -->
 
 <style>
 
-    /* ============================================= */
-    /* GENERAL */
-    /* ============================================= */
 
     body {
         background: #f3f4f6;
@@ -741,11 +447,9 @@
         font-family: Arial, Helvetica, sans-serif;
     }
 
-
     .body-content {
         padding-top: 30px;
     }
-
 
     .monitor-container {
         width: 100%;
@@ -753,11 +457,6 @@
         margin: 0 auto;
         padding: 0 15px 30px 15px;
     }
-
-
-    /* ============================================= */
-    /* HEADER */
-    /* ============================================= */
 
     .monitor-header {
         display: flex;
@@ -771,13 +470,11 @@
         box-shadow: 0 2px 8px rgba(0,0,0,.08);
     }
 
-
     .header-title {
         display: flex;
         align-items: center;
         gap: 15px;
     }
-
 
     .header-icon {
         width: 48px;
@@ -792,7 +489,6 @@
         font-weight: bold;
     }
 
-
     .monitor-header h1 {
         margin: 0;
         font-size: 26px;
@@ -800,13 +496,11 @@
         letter-spacing: .3px;
     }
 
-
     .monitor-header p {
         margin: 5px 0 0 0;
         color: #9ca3af;
         font-size: 13px;
     }
-
 
     .last-update {
         display: flex;
@@ -816,17 +510,11 @@
         color: #9ca3af;
     }
 
-
         .last-update strong {
             margin-top: 4px;
             color: white;
             font-size: 16px;
         }
-
-
-    /* ============================================= */
-    /* STATUS DOTS */
-    /* ============================================= */
 
     .status-dot {
         display: inline-block;
@@ -839,49 +527,37 @@
         margin-right: 6px;
     }
 
-
     .status-green {
         background-color: #16a34a;
         box-shadow: 0 0 0 2px rgba(22,163,74,.12);
     }
-
 
     .status-yellow {
         background-color: #eab308;
         box-shadow: 0 0 0 2px rgba(234,179,8,.12);
     }
 
-
     .status-red {
         background-color: #dc2626;
         box-shadow: 0 0 0 2px rgba(220,38,38,.12);
     }
-
 
     .status-blue {
         background-color: #2563eb;
         box-shadow: 0 0 0 2px rgba(37,99,235,.12);
     }
 
-
     .status-text {
         font-weight: bold;
     }
-
 
         .status-text.green {
             color: #15803d;
         }
 
-
         .status-text.red {
             color: #dc2626;
         }
-
-
-    /* ============================================= */
-    /* SUMMARY */
-    /* ============================================= */
 
     .summary-grid {
         display: grid;
@@ -889,7 +565,6 @@
         gap: 15px;
         margin-bottom: 20px;
     }
-
 
     .summary-card {
         background: white;
@@ -900,7 +575,6 @@
         box-shadow: 0 1px 3px rgba(0,0,0,.04);
     }
 
-
     .summary-label {
         color: #6b7280;
         font-size: 11px;
@@ -909,14 +583,12 @@
         margin-bottom: 10px;
     }
 
-
     .summary-value {
         font-size: 18px;
         font-weight: 600;
         color: #111827;
         margin-bottom: 10px;
     }
-
 
     .summary-number {
         font-size: 32px;
@@ -925,33 +597,24 @@
         margin-bottom: 9px;
     }
 
-
         .summary-number.blue {
             color: #2563eb;
         }
 
-
         .summary-number.red {
             color: #dc2626;
         }
-
 
     .summary-description {
         color: #9ca3af;
         font-size: 12px;
     }
 
-
     .summary-status {
         display: flex;
         align-items: center;
         font-size: 12px;
     }
-
-
-    /* ============================================= */
-    /* PANELS */
-    /* ============================================= */
 
     .monitor-panel {
         background: white;
@@ -962,7 +625,6 @@
         box-shadow: 0 1px 3px rgba(0,0,0,.04);
     }
 
-
     .panel-header {
         display: flex;
         align-items: center;
@@ -972,24 +634,20 @@
         border-bottom: 1px solid #e5e7eb;
     }
 
-
         .panel-header > div {
             display: flex;
             align-items: center;
         }
-
 
         .panel-header strong {
             font-size: 14px;
             color: #111827;
         }
 
-
     .panel-icon {
         margin-right: 9px;
         font-size: 15px;
     }
-
 
     .panel-counter {
         color: #6b7280;
@@ -1000,15 +658,9 @@
         font-weight: bold;
     }
 
-
     .panel-content {
         padding: 15px;
     }
-
-
-    /* ============================================= */
-    /* SUBJECT */
-    /* ============================================= */
 
     .subject-card {
         border: 1px solid #e5e7eb;
@@ -1018,11 +670,9 @@
         background: white;
     }
 
-
         .subject-card:last-child {
             margin-bottom: 0;
         }
-
 
     .subject-header {
         display: flex;
@@ -1033,24 +683,20 @@
         border-bottom: 1px solid #e5e7eb;
     }
 
-
     .subject-name {
         display: flex;
         align-items: center;
     }
-
 
         .subject-name strong {
             color: #111827;
             font-size: 15px;
         }
 
-
     .subject-icon {
         margin-right: 8px;
         font-size: 14px;
     }
-
 
     .subject-connections {
         display: flex;
@@ -1060,22 +706,18 @@
         font-weight: bold;
     }
 
-
     .subject-clients {
         background: white;
     }
-
 
     .client-row {
         padding: 13px 15px;
         border-bottom: 1px solid #f1f5f9;
     }
 
-
         .client-row:last-child {
             border-bottom: none;
         }
-
 
     .client-main {
         display: flex;
@@ -1083,11 +725,18 @@
         margin-bottom: 9px;
     }
 
+    .cid-link {
+        color: #111827;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
 
-        .client-main strong {
-            font-size: 13px;
+        .cid-link:hover {
+            color: #2563eb;
+            text-decoration: underline;
         }
-
 
     .client-lang {
         margin-left: 10px;
@@ -1099,7 +748,6 @@
         font-weight: bold;
     }
 
-
     .client-details {
         display: flex;
         gap: 25px;
@@ -1109,17 +757,11 @@
         font-size: 12px;
     }
 
-
         .client-details > div {
             display: flex;
             gap: 5px;
             align-items: center;
         }
-
-
-    /* ============================================= */
-    /* DETALLES */
-    /* ============================================= */
 
     .detail-label {
         display: block;
@@ -1130,15 +772,9 @@
         margin-bottom: 3px;
     }
 
-
     .client-details .detail-label {
         margin-bottom: 0;
     }
-
-
-    /* ============================================= */
-    /* CONEXIONES */
-    /* ============================================= */
 
     .connection-card {
         border: 1px solid #e5e7eb;
@@ -1148,11 +784,9 @@
         background: white;
     }
 
-
         .connection-card:last-child {
             margin-bottom: 0;
         }
-
 
     .connection-title {
         display: flex;
@@ -1161,13 +795,11 @@
         margin-bottom: 15px;
     }
 
-
     .connection-client {
         display: flex;
         align-items: center;
         font-size: 14px;
     }
-
 
     .connection-info {
         display: grid;
@@ -1176,23 +808,19 @@
         margin-bottom: 15px;
     }
 
-
         .connection-info strong {
             font-size: 13px;
             color: #111827;
         }
-
 
     .connection-subjects {
         border-top: 1px solid #f1f5f9;
         padding-top: 12px;
     }
 
-
     .subject-tags {
         margin-top: 7px;
     }
-
 
     .subject-tag {
         display: inline-block;
@@ -1205,28 +833,20 @@
         font-weight: bold;
     }
 
-
     .no-subjects {
         color: #9ca3af;
         font-size: 12px;
     }
 
-
-    /* ============================================= */
-    /* ACTIVIDAD */
-    /* ============================================= */
-
     .activity-content {
         padding: 18px;
     }
-
 
     .activity-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 15px;
     }
-
 
     .activity-card {
         text-align: center;
@@ -1236,7 +856,6 @@
         background: #fafafa;
     }
 
-
     .activity-label {
         color: #6b7280;
         font-size: 11px;
@@ -1244,28 +863,23 @@
         margin-bottom: 8px;
     }
 
-
     .activity-number {
         font-size: 34px;
         font-weight: 700;
         line-height: 1;
     }
 
-
         .activity-number.blue {
             color: #2563eb;
         }
-
 
         .activity-number.green {
             color: #16a34a;
         }
 
-
         .activity-number.red {
             color: #dc2626;
         }
-
 
     .last-message {
         display: flex;
@@ -1278,20 +892,13 @@
         font-size: 12px;
     }
 
-
         .last-message strong {
             color: #111827;
         }
 
-
-    /* ============================================= */
-    /* EVENTOS */
-    /* ============================================= */
-
     .events-container {
         padding: 0 18px;
     }
-
 
     .event {
         display: flex;
@@ -1303,11 +910,9 @@
         color: #374151;
     }
 
-
         .event:last-child {
             border-bottom: none;
         }
-
 
         .event strong {
             margin-right: 10px;
@@ -1315,15 +920,9 @@
             font-size: 12px;
         }
 
-
         .event .status-dot {
             margin-right: 9px;
         }
-
-
-    /* ============================================= */
-    /* EMPTY */
-    /* ============================================= */
 
     .empty-state {
         display: flex;
@@ -1334,23 +933,16 @@
         font-size: 12px;
     }
 
-
-    /* ============================================= */
-    /* RESPONSIVE */
-    /* ============================================= */
-
     @@media (max-width: 1000px) {
 
         .summary-grid {
             grid-template-columns: repeat(2, 1fr);
         }
 
-
         .connection-info {
             grid-template-columns: repeat(2, 1fr);
         }
     }
-
 
     @@media (max-width: 700px) {
 
@@ -1360,16 +952,13 @@
             gap: 15px;
         }
 
-
         .last-update {
             align-items: flex-start;
         }
 
-
         .summary-grid {
             grid-template-columns: 1fr;
         }
-
 
         .subject-header {
             flex-direction: column;
@@ -1377,16 +966,13 @@
             gap: 8px;
         }
 
-
         .connection-info {
             grid-template-columns: 1fr;
         }
 
-
         .activity-grid {
             grid-template-columns: 1fr;
         }
-
 
         .client-details {
             margin-left: 0;
@@ -1394,11 +980,6 @@
         }
     }
 </style>
-
-
-<!-- ===================================================== -->
-<!-- JAVASCRIPT -->
-<!-- ===================================================== -->
 
 <script>
 
@@ -1412,9 +993,7 @@
 
             cache: false,
 
-
             success: function (data) {
-
 
                 // =========================================
                 // HORA
@@ -1423,26 +1002,12 @@
                 if (data.UltimaActualizacion) {
 
                     var fecha =
-                        new Date(
-                            data.UltimaActualizacion
-                        );
-
+                        new Date(data.UltimaActualizacion);
 
                     $('#ultimaActualizacion')
-                        .text(
-                            fecha.toLocaleTimeString()
-                        );
+                        .text(fecha.toLocaleTimeString());
 
                 }
-
-
-                // =========================================
-                // SERVIDOR
-                // =========================================
-
-                // El servidor se mantiene desde el HTML.
-                // Si querés actualizarlo dinámicamente,
-                // se puede agregar posteriormente.
 
 
                 // =========================================
@@ -1451,20 +1016,18 @@
 
                 if (data.NatsConnected) {
 
-                    $('#natsEstado')
-                        .html(
-                            '<span class="status-dot status-green"></span>' +
-                            '<span class="status-text green">CONNECTED</span>'
-                        );
+                    $('#natsEstado').html(
+                        '<span class="status-dot status-green"></span>' +
+                        '<span class="status-text green">CONNECTED</span>'
+                    );
 
                 }
                 else {
 
-                    $('#natsEstado')
-                        .html(
-                            '<span class="status-dot status-red"></span>' +
-                            '<span class="status-text red">DISCONNECTED</span>'
-                        );
+                    $('#natsEstado').html(
+                        '<span class="status-dot status-red"></span>' +
+                        '<span class="status-text red">DISCONNECTED</span>'
+                    );
 
                 }
 
@@ -1478,9 +1041,7 @@
 
 
                 $('#cantidadSubjects')
-                    .text(
-                        subjects.length
-                    );
+                    .text(subjects.length);
 
 
                 $('#subjectsResumen')
@@ -1497,9 +1058,7 @@
                 var subjectsHtml = '';
 
 
-                if (
-                    subjects.length === 0
-                ) {
+                if (subjects.length === 0) {
 
                     subjectsHtml =
                         '<div class="empty-state">' +
@@ -1512,16 +1071,11 @@
 
                     $.each(
                         subjects,
-                        function (
-                            index,
-                            subject
-                        ) {
+                        function (index, subject) {
 
                             subjectsHtml +=
                                 '<div class="subject-card">';
 
-
-                            // HEADER
 
                             subjectsHtml +=
                                 '<div class="subject-header">';
@@ -1530,14 +1084,10 @@
                             subjectsHtml +=
                                 '<div class="subject-name">' +
 
-                                '<span class="subject-icon">' +
-                                '📡' +
-                                '</span>' +
+                                '<span class="subject-icon">📡</span>' +
 
                                 '<strong>' +
-                                escapeHtml(
-                                    subject.Subject
-                                ) +
+                                escapeHtml(subject.Subject) +
                                 '</strong>' +
 
                                 '</div>';
@@ -1548,7 +1098,7 @@
 
                                 '<span class="status-dot status-green"></span>' +
 
-                                subject.Connections +
+                                escapeHtml(subject.Connections) +
 
                                 (
                                     subject.Connections === 1
@@ -1563,8 +1113,6 @@
                                 '</div>';
 
 
-                            // CLIENTES
-
                             subjectsHtml +=
                                 '<div class="subject-clients">';
 
@@ -1575,10 +1123,44 @@
 
                             $.each(
                                 clients,
-                                function (
-                                    i,
-                                    client
-                                ) {
+                                function (i, client) {
+
+                                    var consumer = '';
+
+                                    if (
+                                        subject.Subject &&
+                                        subject.Subject.toString().toLowerCase() === 'github'
+                                    ) {
+
+                                        consumer = 'github';
+
+                                    }
+                                    else if (
+                                        client.Lang &&
+                                        client.Lang.toString().trim().toLowerCase() === '.net'
+                                    ) {
+
+                                        consumer = 'contactformpbp';
+
+                                    }
+                                    else {
+
+                                        consumer = 'natspython';
+
+                                    }
+
+
+                                    var logsUrl =
+                                        '@Url.Action("Logs", "Home")' +
+                                        '?cid=' +
+                                        encodeURIComponent(client.Cid) +
+                                        '&subject=' +
+                                        encodeURIComponent(subject.Subject) +
+                                        '&consumer=' +
+                                        encodeURIComponent(consumer);
+
+
+
 
                                     subjectsHtml +=
                                         '<div class="client-row">';
@@ -1589,23 +1171,24 @@
 
                                         '<span class="status-dot status-green"></span>' +
 
-                                        '<strong>' +
+                                        '<a href="' +
+                                        logsUrl +
+                                        '" class="cid-link">' +
+
                                         'Cid ' +
-                                        client.Cid +
-                                        '</strong>';
+                                        escapeHtml(client.Cid) +
+
+                                        '</a>';
 
 
                                     if (
-                                        client.Lang
+                                        client.Lang &&
+                                        client.Lang.toString().trim() !== ''
                                     ) {
 
                                         subjectsHtml +=
                                             '<span class="client-lang">' +
-
-                                            escapeHtml(
-                                                client.Lang
-                                            ) +
-
+                                            escapeHtml(client.Lang) +
                                             '</span>';
 
                                     }
@@ -1621,63 +1204,37 @@
 
                                     subjectsHtml +=
                                         '<div>' +
-
-                                        '<span class="detail-label">' +
-                                        'IP' +
-                                        '</span>' +
-
+                                        '<span class="detail-label">IP</span>' +
                                         '<span>' +
-                                        escapeHtml(
-                                            client.Ip
-                                        ) +
+                                        escapeHtml(client.Ip) +
                                         '</span>' +
-
                                         '</div>';
 
 
                                     subjectsHtml +=
                                         '<div>' +
-
-                                        '<span class="detail-label">' +
-                                        'PUERTO' +
-                                        '</span>' +
-
+                                        '<span class="detail-label">PUERTO</span>' +
                                         '<span>' +
-                                        client.Port +
+                                        escapeHtml(client.Port) +
                                         '</span>' +
-
                                         '</div>';
 
 
                                     subjectsHtml +=
                                         '<div>' +
-
-                                        '<span class="detail-label">' +
-                                        'VERSIÓN' +
-                                        '</span>' +
-
+                                        '<span class="detail-label">VERSIÓN</span>' +
                                         '<span>' +
-                                        escapeHtml(
-                                            client.Version
-                                        ) +
+                                        escapeHtml(client.Version) +
                                         '</span>' +
-
                                         '</div>';
 
 
                                     subjectsHtml +=
                                         '<div>' +
-
-                                        '<span class="detail-label">' +
-                                        'UPTIME' +
-                                        '</span>' +
-
+                                        '<span class="detail-label">UPTIME</span>' +
                                         '<span>' +
-                                        escapeHtml(
-                                            client.Uptime
-                                        ) +
+                                        escapeHtml(client.Uptime) +
                                         '</span>' +
-
                                         '</div>';
 
 
@@ -1693,10 +1250,7 @@
 
 
                             subjectsHtml +=
-                                '</div>';
-
-
-                            subjectsHtml +=
+                                '</div>' +
                                 '</div>';
 
                         }
@@ -1706,9 +1260,7 @@
 
 
                 $('#subjectsContainer')
-                    .html(
-                        subjectsHtml
-                    );
+                    .html(subjectsHtml);
 
 
                 // =========================================
@@ -1720,31 +1272,22 @@
 
 
                 $('#cantidadConexiones')
-                    .text(
-                        connections.length
-                    );
+                    .text(connections.length);
 
 
                 $('#cantidadConexionesHeader')
-                    .text(
-                        connections.length
-                    );
+                    .text(connections.length);
 
 
                 var connectionsHtml = '';
 
 
-                if (
-                    connections.length === 0
-                ) {
+                if (connections.length === 0) {
 
                     connectionsHtml =
                         '<div class="empty-state">' +
-
                         '<span class="status-dot status-yellow"></span>' +
-
                         'No hay conexiones NATS' +
-
                         '</div>';
 
                 }
@@ -1752,10 +1295,7 @@
 
                     $.each(
                         connections,
-                        function (
-                            index,
-                            connection
-                        ) {
+                        function (index, connection) {
 
                             connectionsHtml +=
                                 '<div class="connection-card">';
@@ -1772,7 +1312,7 @@
 
                                 '<strong>' +
                                 'Cid ' +
-                                connection.Cid +
+                                escapeHtml(connection.Cid) +
                                 '</strong>' +
 
                                 '</div>';
@@ -1782,8 +1322,7 @@
                                 '<span class="client-lang">' +
 
                                 escapeHtml(
-                                    connection.Lang ||
-                                    'N/A'
+                                    connection.Lang || 'N/A'
                                 ) +
 
                                 '</span>';
@@ -1799,65 +1338,37 @@
 
                             connectionsHtml +=
                                 '<div>' +
-
-                                '<span class="detail-label">' +
-                                'IP' +
-                                '</span>' +
-
+                                '<span class="detail-label">IP</span>' +
                                 '<strong>' +
-                                escapeHtml(
-                                    connection.Ip
-                                ) +
+                                escapeHtml(connection.Ip) +
                                 '</strong>' +
-
                                 '</div>';
 
 
                             connectionsHtml +=
                                 '<div>' +
-
-                                '<span class="detail-label">' +
-                                'PUERTO' +
-                                '</span>' +
-
+                                '<span class="detail-label">PUERTO</span>' +
                                 '<strong>' +
-                                connection.Port +
+                                escapeHtml(connection.Port) +
                                 '</strong>' +
-
                                 '</div>';
 
 
                             connectionsHtml +=
                                 '<div>' +
-
-                                '<span class="detail-label">' +
-                                'VERSIÓN' +
-                                '</span>' +
-
+                                '<span class="detail-label">VERSIÓN</span>' +
                                 '<strong>' +
-                                escapeHtml(
-                                    connection.Version ||
-                                    'N/A'
-                                ) +
+                                escapeHtml(connection.Version || 'N/A') +
                                 '</strong>' +
-
                                 '</div>';
 
 
                             connectionsHtml +=
                                 '<div>' +
-
-                                '<span class="detail-label">' +
-                                'UPTIME' +
-                                '</span>' +
-
+                                '<span class="detail-label">UPTIME</span>' +
                                 '<strong>' +
-                                escapeHtml(
-                                    connection.Uptime ||
-                                    'N/A'
-                                ) +
+                                escapeHtml(connection.Uptime || 'N/A') +
                                 '</strong>' +
-
                                 '</div>';
 
 
@@ -1876,13 +1387,10 @@
 
 
                             var subs =
-                                connection.SubscriptionsList ||
-                                [];
+                                connection.SubscriptionsList || [];
 
 
-                            if (
-                                subs.length === 0
-                            ) {
+                            if (subs.length === 0) {
 
                                 connectionsHtml +=
                                     '<span class="no-subjects">' +
@@ -1894,18 +1402,11 @@
 
                                 $.each(
                                     subs,
-                                    function (
-                                        i,
-                                        sub
-                                    ) {
+                                    function (i, sub) {
 
                                         connectionsHtml +=
                                             '<span class="subject-tag">' +
-
-                                            escapeHtml(
-                                                sub
-                                            ) +
-
+                                            escapeHtml(sub) +
                                             '</span>';
 
                                     }
@@ -1916,9 +1417,7 @@
 
                             connectionsHtml +=
                                 '</div>' +
-
                                 '</div>' +
-
                                 '</div>';
 
                         }
@@ -1928,193 +1427,62 @@
 
 
                 $('#conexionesContainer')
-                    .html(
-                        connectionsHtml
-                    );
+                    .html(connectionsHtml);
 
 
                 // =========================================
-                // METRICAS
+                // MÉTRICAS
                 // =========================================
 
                 $('#recibidos')
-                    .text(
-                        data.Recibidos || 0
-                    );
+                    .text(data.Recibidos || 0);
 
 
                 $('#procesados')
-                    .text(
-                        data.Procesados || 0
-                    );
+                    .text(data.Procesados || 0);
 
 
                 $('#errores')
-                    .text(
-                        data.Errores || 0
-                    );
+                    .text(data.Errores || 0);
 
 
                 $('#erroresActividad')
-                    .text(
-                        data.Errores || 0
-                    );
+                    .text(data.Errores || 0);
 
 
                 // =========================================
-                // ULTIMO MENSAJE
+                // ÚLTIMO MENSAJE
                 // =========================================
 
-                if (
-                    data.UltimoMensaje
-                ) {
+                if (data.UltimoMensaje) {
 
                     var ultimo =
-                        new Date(
-                            data.UltimoMensaje
-                        );
-
+                        new Date(data.UltimoMensaje);
 
                     $('#ultimoMensaje')
-                        .text(
-                            ultimo.toLocaleString()
-                        );
+                        .text(ultimo.toLocaleString());
 
                 }
                 else {
 
                     $('#ultimoMensaje')
-                        .text(
-                            '--'
-                        );
+                        .text('--');
 
                 }
-
-
-                // =========================================
-                // EVENTOS
-                // =========================================
-
-                var html =
-                    '';
-
-
-                if (
-                    !data.Eventos ||
-                    data.Eventos.length === 0
-                ) {
-
-                    html =
-                        '<div class="empty-state">' +
-
-                        '<span class="status-dot status-yellow"></span>' +
-
-                        'Sin eventos registrados' +
-
-                        '</div>';
-
-                }
-                else {
-
-                    $.each(
-                        data.Eventos,
-                        function (
-                            index,
-                            evento
-                        ) {
-
-                            var statusClass =
-                                'status-blue';
-
-
-                            if (
-                                evento.Tipo ===
-                                'OK'
-                            ) {
-
-                                statusClass =
-                                    'status-green';
-
-                            }
-
-
-                            if (
-                                evento.Tipo ===
-                                'ERROR'
-                            ) {
-
-                                statusClass =
-                                    'status-red';
-
-                            }
-
-
-                            if (
-                                evento.Tipo ===
-                                'WARNING'
-                            ) {
-
-                                statusClass =
-                                    'status-yellow';
-
-                            }
-
-
-                            var fecha =
-                                new Date(
-                                    evento.Fecha
-                                );
-
-
-                            html +=
-                                '<div class="event">' +
-
-                                '<span class="status-dot ' +
-                                statusClass +
-                                '"></span>' +
-
-                                '<strong>' +
-
-                                fecha.toLocaleTimeString() +
-
-                                '</strong>' +
-
-                                '<span>' +
-
-                                escapeHtml(
-                                    evento.Mensaje
-                                ) +
-
-                                '</span>' +
-
-                                '</div>';
-
-                        }
-                    );
-
-                }
-
-
-                $('#eventos')
-                    .html(
-                        html
-                    );
 
             },
 
-
             error: function () {
 
-                $('#natsEstado')
-                    .html(
+                $('#natsEstado').html(
 
-                        '<span class="status-dot status-red"></span>' +
+                    '<span class="status-dot status-red"></span>' +
 
-                        '<span class="status-text red">' +
-                        'ERROR MONITOR' +
-                        '</span>'
+                    '<span class="status-text red">' +
+                    'ERROR MONITOR' +
+                    '</span>'
 
-                    );
+                );
 
             }
 
@@ -2123,9 +1491,9 @@
     }
 
 
-    // =====================================================
+    // =========================================
     // ESCAPAR HTML
-    // =====================================================
+    // =========================================
 
     function escapeHtml(value) {
 
@@ -2136,7 +1504,6 @@
             return '';
         }
 
-
         return $('<div>')
             .text(value)
             .html();
@@ -2144,20 +1511,19 @@
     }
 
 
-    // =====================================================
-    // PRIMERA ACTUALIZACION
-    // =====================================================
+    // =========================================
+    // INICIO
+    // =========================================
 
-    actualizarMonitor();
+    $(document).ready(function () {
 
+        actualizarMonitor();
 
-    // =====================================================
-    // ACTUALIZAR CADA 5 SEGUNDOS
-    // =====================================================
+        setInterval(
+            actualizarMonitor,
+            5000
+        );
 
-    setInterval(
-        actualizarMonitor,
-        5000
-    );
+    });
 
 </script>

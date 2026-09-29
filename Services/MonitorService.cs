@@ -2,28 +2,228 @@
 
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+
 using Newtonsoft.Json.Linq;
 
 namespace IntegrationMonitor.Services
 {
     public class MonitorService
     {
-        private const string NatsPythonLog =
-            @"D:\Mailchimp\AltaUserDemo\NatsPython_Log.txt";
+        public class LogInfo
+        {
+            public string Consumer { get; set; }
 
-        private const string NatsServicioLog =
-            @"D:\Mailchimp\AltaUserDemo\nats_servicio.log";
+            public string ConsumerName { get; set; }
 
-        private const string GitHubLog =
-            @"D:\IGGLOBAL Online\nats_github_push_global_update_respuesta_evento.log";
+            public string LogFile { get; set; }
 
-        private const string NatsMonitoringUrl =
-            "http://127.0.0.1:8222/connz?subs=true";
+            public List<string> LineasLog { get; set; }
+        }
 
+        // =====================================================
+        // CONFIGURACION
+        // =====================================================
+
+        private string ObtenerConfiguracion(string key)
+        {
+            return ConfigurationManager.AppSettings[key];
+        }
+
+        // =====================================================
+        // NATS
+        // =====================================================
+
+        private string NatsServerHost
+        {
+            get
+            {
+                string valor =
+                    ObtenerConfiguracion(
+                        "NatsServer"
+                    );
+
+                if (string.IsNullOrWhiteSpace(valor))
+                {
+                    return "127.0.0.1";
+                }
+
+                return valor.Trim();
+            }
+        }
+
+        private int NatsServerPort
+        {
+            get
+            {
+                int puerto;
+
+                if (
+                    int.TryParse(
+                        ObtenerConfiguracion(
+                            "NatsPort"
+                        ),
+                        out puerto
+                    )
+                )
+                {
+                    return puerto;
+                }
+
+                return 4222;
+            }
+        }
+
+        private int NatsMonitoringPort
+        {
+            get
+            {
+                int puerto;
+
+                if (
+                    int.TryParse(
+                        ObtenerConfiguracion(
+                            "NatsMonitoringPort"
+                        ),
+                        out puerto
+                    )
+                )
+                {
+                    return puerto;
+                }
+
+                return 8222;
+            }
+        }
+
+        private string NatsMonitoringUrl
+        {
+            get
+            {
+                return
+                    "http://"
+                    + NatsServerHost
+                    + ":"
+                    + NatsMonitoringPort
+                    + "/connz?subs=true";
+            }
+        }
+
+        // =====================================================
+        // RUTAS DE LOG
+        // =====================================================
+
+        private string NatsPythonLog
+        {
+            get
+            {
+                return ObtenerRutaLogConfigurada(
+                    "Log.globalcontactform.natspython"
+                );
+            }
+        }
+
+        private string ContactFormPbpLog
+        {
+            get
+            {
+                return ObtenerRutaLogConfigurada(
+                    "Log.globalcontactform.contactformpbp"
+                );
+            }
+        }
+
+        private string GitHubLog
+        {
+            get
+            {
+                return ObtenerRutaLogConfigurada(
+                    "Log.github"
+                );
+            }
+        }
+
+        // =====================================================
+        // CONSTRUIR RUTA DE LOG REMOTA
+        // =====================================================
+
+        private string ObtenerRutaLogConfigurada(
+            string prefijo
+        )
+        {
+            string server =
+                ObtenerConfiguracion(
+                    prefijo + ".Server"
+                );
+
+            string share =
+                ObtenerConfiguracion(
+                    prefijo + ".Share"
+                );
+
+            string path =
+                ObtenerConfiguracion(
+                    prefijo + ".Path"
+                );
+
+            // -------------------------------------------------
+            // VALIDAR
+            // -------------------------------------------------
+
+            if (
+                string.IsNullOrWhiteSpace(server)
+                ||
+                string.IsNullOrWhiteSpace(share)
+                ||
+                string.IsNullOrWhiteSpace(path)
+            )
+            {
+                return null;
+            }
+
+            server =
+                server.Trim();
+
+            share =
+                share.Trim();
+
+            path =
+                path.Trim();
+
+            // -------------------------------------------------
+            // NORMALIZAR
+            // -------------------------------------------------
+
+            server =
+                server
+                    .TrimStart('\\')
+                    .TrimEnd('\\');
+
+            share =
+                share
+                    .TrimStart('\\')
+                    .TrimEnd('\\');
+
+            path =
+                path
+                    .TrimStart('\\');
+
+            // -------------------------------------------------
+            // RUTA UNC
+            // -------------------------------------------------
+
+            return
+                @"\\"
+                + server
+                + @"\"
+                + share
+                + @"\"
+                + path;
+        }
 
         // =====================================================
         // ESTADO GENERAL
@@ -34,12 +234,17 @@ namespace IntegrationMonitor.Services
             var estado =
                 new IntegrationStatus();
 
+            // -------------------------------------------------
+            // SERVIDOR NATS
+            // -------------------------------------------------
+
             estado.NatsServer =
-                "localhost:4222";
+                NatsServerHost
+                + ":"
+                + NatsServerPort;
 
             estado.UltimaActualizacion =
                 DateTime.Now;
-
 
             // -------------------------------------------------
             // NATS
@@ -53,18 +258,18 @@ namespace IntegrationMonitor.Services
                     ? "CONNECTED"
                     : "DISCONNECTED";
 
-
             // -------------------------------------------------
             // SUBJECTS Y CONEXIONES NATS
             // -------------------------------------------------
 
-            if (estado.NatsConnected)
+            if (
+                estado.NatsConnected
+            )
             {
                 ObtenerSubjectsNats(
                     estado
                 );
             }
-
 
             // -------------------------------------------------
             // LOG NATS PYTHON
@@ -74,7 +279,6 @@ namespace IntegrationMonitor.Services
                 estado
             );
 
-
             // -------------------------------------------------
             // LOG GITHUB
             // -------------------------------------------------
@@ -82,7 +286,6 @@ namespace IntegrationMonitor.Services
             AnalizarGitHub(
                 estado
             );
-
 
             // -------------------------------------------------
             // ORDENAR EVENTOS
@@ -96,10 +299,355 @@ namespace IntegrationMonitor.Services
                     .Take(10)
                     .ToList();
 
-
             return estado;
         }
 
+        // =====================================================
+        // OBTENER LOG
+        // =====================================================
+
+        public LogInfo ObtenerLog(
+            int cid,
+            string subject,
+            string consumer)
+        {
+            var resultado =
+                new LogInfo
+                {
+                    Consumer =
+                        consumer,
+
+                    ConsumerName =
+                        consumer,
+
+                    LogFile =
+                        "",
+
+                    LineasLog =
+                        new List<string>()
+                };
+
+            // -------------------------------------------------
+            // VALIDAR DATOS
+            // -------------------------------------------------
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    subject
+                )
+            )
+            {
+                resultado.LineasLog.Add(
+                    "No se recibió ningún Subject."
+                );
+
+                return resultado;
+            }
+
+            // -------------------------------------------------
+            // OBTENER RUTA
+            // -------------------------------------------------
+
+            string rutaLog =
+                ObtenerRutaLog(
+                    subject,
+                    consumer
+                );
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    rutaLog
+                )
+            )
+            {
+                resultado.LineasLog.Add(
+                    "No existe un archivo de log asociado al Consumer '"
+                    + consumer
+                    + "' y Subject '"
+                    + subject
+                    + "'."
+                );
+
+                return resultado;
+            }
+
+            resultado.LogFile =
+                rutaLog;
+
+            // -------------------------------------------------
+            // VALIDAR ARCHIVO
+            // -------------------------------------------------
+
+            if (
+                !File.Exists(
+                    rutaLog
+                )
+            )
+            {
+                resultado.LineasLog.Add(
+                    "No se encontró el archivo de log:"
+                );
+
+                resultado.LineasLog.Add(
+                    rutaLog
+                );
+
+                return resultado;
+            }
+
+            // -------------------------------------------------
+            // LEER LOG
+            // -------------------------------------------------
+
+            try
+            {
+                string[] lineas =
+                    File.ReadAllLines(
+                        rutaLog
+                    );
+
+                if (
+                    lineas.Length == 0
+                )
+                {
+                    resultado.LineasLog.Add(
+                        "El archivo de log está vacío."
+                    );
+
+                    return resultado;
+                }
+
+                resultado.LineasLog =
+                    lineas
+                        .Reverse()
+                        .ToList();
+            }
+            catch (
+                Exception ex
+            )
+            {
+                resultado.LineasLog.Add(
+                    "ERROR leyendo el archivo de log:"
+                );
+
+                resultado.LineasLog.Add(
+                    ex.Message
+                );
+            }
+
+            return resultado;
+        }
+
+        // =====================================================
+        // DETERMINAR RUTA SEGUN SUBJECT / CONSUMER
+        // =====================================================
+
+        private string ObtenerRutaLog(
+            string subject,
+            string consumer)
+        {
+            string subjectNormalizado =
+                string.IsNullOrWhiteSpace(
+                    subject
+                )
+                    ? ""
+                    : subject.Trim();
+
+            string consumerNormalizado =
+                string.IsNullOrWhiteSpace(
+                    consumer
+                )
+                    ? ""
+                    : consumer.Trim();
+
+            // =================================================
+            // GITHUB
+            // =================================================
+
+            if (
+                string.Equals(
+                    consumerNormalizado,
+                    "github",
+                    StringComparison.OrdinalIgnoreCase
+                )
+                ||
+                string.Equals(
+                    subjectNormalizado,
+                    "github",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                return GitHubLog;
+            }
+
+            // =================================================
+            // GLOBALCONTACTFORM
+            // =================================================
+
+            if (
+                string.Equals(
+                    subjectNormalizado,
+                    "globalcontactform",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                // ---------------------------------------------
+                // NATS PYTHON
+                // ---------------------------------------------
+
+                if (
+                    string.Equals(
+                        consumerNormalizado,
+                        "natspython",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    ||
+                    string.Equals(
+                        consumerNormalizado,
+                        "nats_python",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    ||
+                    string.Equals(
+                        consumerNormalizado,
+                        "python",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    return NatsPythonLog;
+                }
+
+                // ---------------------------------------------
+                // CONTACTFORMPBP
+                // ---------------------------------------------
+
+                if (
+                    string.Equals(
+                        consumerNormalizado,
+                        "contactformpbp",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    ||
+                    string.Equals(
+                        consumerNormalizado,
+                        "contactform_pbp",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                    ||
+                    string.Equals(
+                        consumerNormalizado,
+                        "mailchimpcontactformpbp",
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    return ContactFormPbpLog;
+                }
+            }
+
+            return null;
+        }
+
+        // =====================================================
+        // LIMPIAR LOG
+        // =====================================================
+
+        public object LimpiarLog(
+            int cid,
+            string subject,
+            string consumer)
+        {
+            string rutaLog =
+                ObtenerRutaLog(
+                    subject,
+                    consumer
+                );
+
+            // -------------------------------------------------
+            // VALIDAR RUTA
+            // -------------------------------------------------
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    rutaLog
+                )
+            )
+            {
+                return new
+                {
+                    ok = false,
+
+                    mensaje =
+                        "No existe un archivo de log asociado al Consumer '"
+                        + consumer
+                        + "' y Subject '"
+                        + subject
+                        + "'."
+                };
+            }
+
+            // -------------------------------------------------
+            // VALIDAR EXISTENCIA
+            // -------------------------------------------------
+
+            if (
+                !File.Exists(
+                    rutaLog
+                )
+            )
+            {
+                return new
+                {
+                    ok = false,
+
+                    mensaje =
+                        "No se encontró el archivo de log: "
+                        + rutaLog
+                };
+            }
+
+            // -------------------------------------------------
+            // LIMPIAR
+            // -------------------------------------------------
+
+            try
+            {
+                File.WriteAllText(
+                    rutaLog,
+                    string.Empty
+                );
+
+                return new
+                {
+                    ok = true,
+
+                    mensaje =
+                        "Log limpiado correctamente.",
+
+                    archivo =
+                        rutaLog
+                };
+            }
+            catch (
+                Exception ex
+            )
+            {
+                return new
+                {
+                    ok = false,
+
+                    mensaje =
+                        "No se pudo limpiar el log: "
+                        + ex.Message,
+
+                    archivo =
+                        rutaLog
+                };
+            }
+        }
 
         // =====================================================
         // VERIFICAR NATS
@@ -117,8 +665,8 @@ namespace IntegrationMonitor.Services
                     var resultado =
                         client
                             .ConnectAsync(
-                                "127.0.0.1",
-                                4222
+                                NatsServerHost,
+                                NatsServerPort
                             )
                             .Wait(
                                 TimeSpan.FromSeconds(2)
@@ -133,16 +681,22 @@ namespace IntegrationMonitor.Services
             }
         }
 
+        // =====================================================
+        // OBTENER SUBJECTS NATS
+        // =====================================================
 
         private void ObtenerSubjectsNats(
-    IntegrationStatus estado
-)
+            IntegrationStatus estado
+        )
         {
             try
             {
                 string json;
 
-                using (var client = new WebClient())
+                using (
+                    var client =
+                        new WebClient()
+                )
                 {
                     client.Encoding =
                         System.Text.Encoding.UTF8;
@@ -153,23 +707,35 @@ namespace IntegrationMonitor.Services
                         );
                 }
 
-                if (string.IsNullOrWhiteSpace(json))
+                if (
+                    string.IsNullOrWhiteSpace(
+                        json
+                    )
+                )
                 {
                     return;
                 }
 
                 JObject root =
-                    JObject.Parse(json);
+                    JObject.Parse(
+                        json
+                    );
 
                 JArray connections =
-                    root["connections"] as JArray;
+                    root["connections"]
+                        as JArray;
 
-                if (connections == null)
+                if (
+                    connections == null
+                )
                 {
                     return;
                 }
 
-                foreach (JToken connectionToken in connections)
+                foreach (
+                    JToken connectionToken
+                    in connections
+                )
                 {
                     var connection =
                         new NatsConnectionStatus();
@@ -230,12 +796,18 @@ namespace IntegrationMonitor.Services
                             : "";
 
                     JArray subscriptions =
-                        connectionToken["subscriptions_list"]
-                            as JArray;
+                        connectionToken[
+                            "subscriptions_list"
+                        ] as JArray;
 
-                    if (subscriptions != null)
+                    if (
+                        subscriptions != null
+                    )
                     {
-                        foreach (JToken subscription in subscriptions)
+                        foreach (
+                            JToken subscription
+                            in subscriptions
+                        )
                         {
                             string subject =
                                 subscription.ToString();
@@ -251,21 +823,15 @@ namespace IntegrationMonitor.Services
 
                             connection
                                 .SubscriptionsList
-                                .Add(subject);
+                                .Add(
+                                    subject
+                                );
                         }
                     }
-
-                    // ---------------------------------------------
-                    // GUARDAR CONEXIÓN
-                    // ---------------------------------------------
 
                     estado.NatsConnections.Add(
                         connection
                     );
-
-                    // ---------------------------------------------
-                    // CREAR LISTA DE SUBJECTS
-                    // ---------------------------------------------
 
                     foreach (
                         string subject
@@ -283,7 +849,9 @@ namespace IntegrationMonitor.Services
                                         )
                                 );
 
-                        if (existente == null)
+                        if (
+                            existente == null
+                        )
                         {
                             existente =
                                 new NatsSubjectStatus
@@ -308,10 +876,6 @@ namespace IntegrationMonitor.Services
                     }
                 }
 
-                // ---------------------------------------------
-                // ORDENAR SUBJECTS
-                // ---------------------------------------------
-
                 estado.Subjects =
                     estado.Subjects
                         .OrderBy(
@@ -319,7 +883,9 @@ namespace IntegrationMonitor.Services
                         )
                         .ToList();
             }
-            catch (Exception ex)
+            catch (
+                Exception ex
+            )
             {
                 estado.Eventos.Add(
                     new IntegrationEvent
@@ -349,13 +915,11 @@ namespace IntegrationMonitor.Services
             var resultado =
                 new NatsConnectionStatus();
 
-
             resultado.Cid =
                 ObtenerInt(
                     data,
                     "cid"
                 );
-
 
             resultado.Kind =
                 ObtenerString(
@@ -363,13 +927,11 @@ namespace IntegrationMonitor.Services
                     "kind"
                 );
 
-
             resultado.Type =
                 ObtenerString(
                     data,
                     "type"
                 );
-
 
             resultado.Ip =
                 ObtenerString(
@@ -377,13 +939,11 @@ namespace IntegrationMonitor.Services
                     "ip"
                 );
 
-
             resultado.Port =
                 ObtenerInt(
                     data,
                     "port"
                 );
-
 
             resultado.Start =
                 ObtenerString(
@@ -391,13 +951,11 @@ namespace IntegrationMonitor.Services
                     "start"
                 );
 
-
             resultado.LastActivity =
                 ObtenerString(
                     data,
                     "last_activity"
                 );
-
 
             resultado.Uptime =
                 ObtenerString(
@@ -405,13 +963,11 @@ namespace IntegrationMonitor.Services
                     "uptime"
                 );
 
-
             resultado.Subscriptions =
                 ObtenerInt(
                     data,
                     "subscriptions"
                 );
-
 
             resultado.Lang =
                 ObtenerString(
@@ -419,13 +975,11 @@ namespace IntegrationMonitor.Services
                     "lang"
                 );
 
-
             resultado.Version =
                 ObtenerString(
                     data,
                     "version"
                 );
-
 
             if (
                 data.ContainsKey(
@@ -437,8 +991,9 @@ namespace IntegrationMonitor.Services
                     data["subscriptions_list"]
                         as object[];
 
-
-                if (lista != null)
+                if (
+                    lista != null
+                )
                 {
                     foreach (
                         var item
@@ -459,10 +1014,8 @@ namespace IntegrationMonitor.Services
                 }
             }
 
-
             return resultado;
         }
-
 
         // =====================================================
         // HELPERS JSON
@@ -474,8 +1027,12 @@ namespace IntegrationMonitor.Services
         )
         {
             if (
-                data == null ||
-                !data.ContainsKey(key) ||
+                data == null
+                ||
+                !data.ContainsKey(
+                    key
+                )
+                ||
                 data[key] == null
             )
             {
@@ -485,15 +1042,18 @@ namespace IntegrationMonitor.Services
             return data[key].ToString();
         }
 
-
         private int ObtenerInt(
             Dictionary<string, object> data,
             string key
         )
         {
             if (
-                data == null ||
-                !data.ContainsKey(key) ||
+                data == null
+                ||
+                !data.ContainsKey(
+                    key
+                )
+                ||
                 data[key] == null
             )
             {
@@ -514,7 +1074,6 @@ namespace IntegrationMonitor.Services
 
             return 0;
         }
-
 
         // =====================================================
         // NATS PYTHON
@@ -540,16 +1099,15 @@ namespace IntegrationMonitor.Services
                             "WARNING",
 
                         Mensaje =
-                            "No se encontró NatsPython_Log.txt"
+                            "No se encontró el log de NATS Python: "
+                            + NatsPythonLog
                     }
                 );
 
                 return;
             }
 
-
             string[] lineas;
-
 
             try
             {
@@ -558,7 +1116,9 @@ namespace IntegrationMonitor.Services
                         NatsPythonLog
                     );
             }
-            catch (Exception ex)
+            catch (
+                Exception ex
+            )
             {
                 estado.Eventos.Add(
                     new IntegrationEvent
@@ -570,14 +1130,13 @@ namespace IntegrationMonitor.Services
                             "ERROR",
 
                         Mensaje =
-                            "No se pudo leer NatsPython_Log.txt: "
+                            "No se pudo leer el log de NATS Python: "
                             + ex.Message
                     }
                 );
 
                 return;
             }
-
 
             foreach (
                 string linea
@@ -592,7 +1151,6 @@ namespace IntegrationMonitor.Services
                 {
                     estado.Recibidos++;
 
-
                     AgregarEvento(
                         estado,
                         linea,
@@ -600,7 +1158,6 @@ namespace IntegrationMonitor.Services
                         "NATS Python recibió un mensaje"
                     );
                 }
-
 
                 if (
                     linea.Contains(
@@ -610,7 +1167,6 @@ namespace IntegrationMonitor.Services
                 {
                     estado.Procesados++;
 
-
                     AgregarEvento(
                         estado,
                         linea,
@@ -619,7 +1175,6 @@ namespace IntegrationMonitor.Services
                     );
                 }
 
-
                 if (
                     linea.Contains(
                         "[ERROR]"
@@ -627,7 +1182,6 @@ namespace IntegrationMonitor.Services
                 )
                 {
                     estado.Errores++;
-
 
                     AgregarEvento(
                         estado,
@@ -638,7 +1192,6 @@ namespace IntegrationMonitor.Services
                         )
                     );
                 }
-
 
                 if (
                     linea.Contains(
@@ -654,7 +1207,6 @@ namespace IntegrationMonitor.Services
                     );
                 }
 
-
                 if (
                     linea.Contains(
                         "NATS reconectado"
@@ -668,7 +1220,6 @@ namespace IntegrationMonitor.Services
                         "NATS Python reconectado"
                     );
                 }
-
 
                 if (
                     linea.Contains(
@@ -686,7 +1237,6 @@ namespace IntegrationMonitor.Services
             }
         }
 
-
         // =====================================================
         // GITHUB
         // =====================================================
@@ -701,12 +1251,25 @@ namespace IntegrationMonitor.Services
                 )
             )
             {
+                estado.Eventos.Add(
+                    new IntegrationEvent
+                    {
+                        Fecha =
+                            DateTime.Now,
+
+                        Tipo =
+                            "WARNING",
+
+                        Mensaje =
+                            "No se encontró el log de GitHub: "
+                            + GitHubLog
+                    }
+                );
+
                 return;
             }
 
-
             string[] lineas;
-
 
             try
             {
@@ -715,11 +1278,27 @@ namespace IntegrationMonitor.Services
                         GitHubLog
                     );
             }
-            catch
+            catch (
+                Exception ex
+            )
             {
+                estado.Eventos.Add(
+                    new IntegrationEvent
+                    {
+                        Fecha =
+                            DateTime.Now,
+
+                        Tipo =
+                            "ERROR",
+
+                        Mensaje =
+                            "No se pudo leer el log de GitHub: "
+                            + ex.Message
+                    }
+                );
+
                 return;
             }
-
 
             foreach (
                 string linea
@@ -741,7 +1320,6 @@ namespace IntegrationMonitor.Services
                         )
                     );
                 }
-
 
                 if (
                     linea.Contains(
@@ -763,7 +1341,6 @@ namespace IntegrationMonitor.Services
                     );
                 }
 
-
                 if (
                     linea.Contains(
                         "NATS conectado"
@@ -777,7 +1354,6 @@ namespace IntegrationMonitor.Services
                         "GitHub Push conectado a NATS"
                     );
                 }
-
 
                 if (
                     linea.Contains(
@@ -795,9 +1371,8 @@ namespace IntegrationMonitor.Services
             }
         }
 
-
         // =====================================================
-        // EVENTO
+        // AGREGAR EVENTO
         // =====================================================
 
         private void AgregarEvento(
@@ -809,7 +1384,6 @@ namespace IntegrationMonitor.Services
         {
             DateTime fecha;
 
-
             if (
                 !TryObtenerFecha(
                     linea,
@@ -820,7 +1394,6 @@ namespace IntegrationMonitor.Services
                 fecha =
                     DateTime.Now;
             }
-
 
             estado.Eventos.Add(
                 new IntegrationEvent
@@ -836,7 +1409,6 @@ namespace IntegrationMonitor.Services
                 }
             );
 
-
             if (
                 mensaje.Contains(
                     "recibió un mensaje"
@@ -847,7 +1419,6 @@ namespace IntegrationMonitor.Services
                     fecha;
             }
         }
-
 
         // =====================================================
         // FECHA
@@ -861,7 +1432,6 @@ namespace IntegrationMonitor.Services
             fecha =
                 DateTime.MinValue;
 
-
             if (
                 string.IsNullOrWhiteSpace(
                     linea
@@ -871,10 +1441,8 @@ namespace IntegrationMonitor.Services
                 return false;
             }
 
-
             string patron =
                 @"^(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2})";
-
 
             Match match =
                 Regex.Match(
@@ -882,14 +1450,12 @@ namespace IntegrationMonitor.Services
                     patron
                 );
 
-
             if (
                 !match.Success
             )
             {
                 return false;
             }
-
 
             return DateTime.TryParse(
                 match.Groups[1].Value
@@ -899,9 +1465,8 @@ namespace IntegrationMonitor.Services
             );
         }
 
-
         // =====================================================
-        // MENSAJE
+        // EXTRAER MENSAJE
         // =====================================================
 
         private string ExtraerMensaje(
@@ -914,14 +1479,12 @@ namespace IntegrationMonitor.Services
                     @"\[(.*?)\]\s+(.*)$"
                 );
 
-
             if (
                 match.Success
             )
             {
                 return match.Groups[2].Value;
             }
-
 
             return linea;
         }

@@ -1,0 +1,472 @@
+﻿@model IntegrationMonitor.Models.LogViewModel
+@using System.Linq
+@using System.Web
+@{
+    ViewBag.Title = "LOG";
+
+    // =====================================================
+    // CONSUMER REAL
+    // =====================================================
+    // Preferimos Consumer.
+    // Si por alguna razón viene vacío, usamos ConsumerName.
+    // Esto evita enviar consumer="" al controlador.
+    //
+    string consumerParaLog =
+        !string.IsNullOrWhiteSpace(Model.Consumer)
+            ? Model.Consumer.Trim()
+            : (Model.ConsumerName ?? "").Trim();
+
+}
+<div class="log-container">
+    <!-- ================================================= -->
+    <!-- HEADER -->
+    <!-- ================================================= -->
+    <div class="log-header">
+        <div>
+            <h1>
+                @Model.ConsumerName
+            </h1>
+            <p>
+                Cid @Model.Cid
+                <span class="separator">|</span>
+                Subject:
+                @Model.Subject
+                <span class="separator">|</span>
+                Consumer:
+                [@consumerParaLog]
+                <br />
+                Model.Consumer:
+                [@Model.Consumer]
+                <br />
+                Model.ConsumerName:
+                [@Model.ConsumerName]
+
+            </p>
+        </div>
+
+        <!-- ================================================= -->
+        <!-- ACCIONES -->
+        <!-- ================================================= -->
+        <div class="log-actions">
+            <button type="button"
+                    id="btnLimpiarLog"
+                    class="btn-clear">
+                LIMPIAR
+
+            </button>
+        </div>
+    </div>
+
+    <!-- ================================================= -->
+    <!-- VISOR -->
+    <!-- ================================================= -->
+    <div id="logViewer"
+         class="log-viewer">
+        @if (
+            Model.LineasLog != null
+            &&
+            Model.LineasLog.Any()
+        )
+        {
+            foreach (
+                var linea
+                in Model.LineasLog
+            )
+            {
+                <div class="log-line">
+                    @linea
+                </div>
+            }
+        }
+        else
+        {
+            <div class="log-line empty-log">
+                No hay información disponible en el log.
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+
+
+    /* ============================================= */
+    /* CONTENEDOR */
+    /* ============================================= */
+
+    .log-container {
+        width: 100%;
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 20px 15px 30px;
+    }
+
+
+    /* ============================================= */
+    /* HEADER */
+    /* ============================================= */
+
+    .log-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #111827;
+        color: white;
+        padding: 20px 25px;
+        border-radius: 8px 8px 0 0;
+    }
+
+
+        .log-header h1 {
+            margin: 0;
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+
+        .log-header p {
+            margin: 6px 0 0;
+            color: #9ca3af;
+            font-size: 13px;
+        }
+
+
+    .separator {
+        margin: 0 8px;
+        color: #4b5563;
+    }
+
+
+    /* ============================================= */
+    /* BOTÓN */
+    /* ============================================= */
+
+    .log-actions {
+        display: flex;
+        align-items: center;
+    }
+
+
+    .btn-clear {
+        border: 1px solid #374151;
+        background: #1f2937;
+        color: #f9fafb;
+        padding: 8px 14px;
+        border-radius: 5px;
+        font-size: 11px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all .15s ease;
+    }
+
+
+        .btn-clear:hover {
+            background: #dc2626;
+            border-color: #dc2626;
+            color: white;
+        }
+
+
+        .btn-clear:active {
+            transform: scale(.97);
+        }
+
+
+        .btn-clear:disabled {
+            opacity: .6;
+            cursor: wait;
+        }
+
+
+    /* ============================================= */
+    /* VISOR */
+    /* ============================================= */
+
+    .log-viewer {
+        background: #050505;
+        color: #d1d5db;
+        height: 650px;
+        padding: 18px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
+        line-height: 1.6;
+        border-radius: 0 0 8px 8px;
+        overflow-y: auto;
+        overflow-x: auto;
+        box-sizing: border-box;
+    }
+
+
+    /* ============================================= */
+    /* LINEAS */
+    /* ============================================= */
+
+    .log-line {
+        padding: 2px 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+
+
+    .empty-log {
+        color: #6b7280;
+    }
+
+
+    /* ============================================= */
+    /* SCROLLBAR */
+    /* ============================================= */
+
+    .log-viewer::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+
+    .log-viewer::-webkit-scrollbar-track {
+        background: #111111;
+    }
+
+
+    .log-viewer::-webkit-scrollbar-thumb {
+        background: #374151;
+        border-radius: 5px;
+    }
+
+
+        .log-viewer::-webkit-scrollbar-thumb:hover {
+            background: #4b5563;
+        }
+
+
+    /* ============================================= */
+    /* RESPONSIVE */
+    /* ============================================= */
+
+    @@media (max-width: 700px) {
+
+        .log-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 15px;
+        }
+
+
+        .log-actions {
+            width: 100%;
+        }
+
+
+        .btn-clear {
+            width: 100%;
+        }
+
+
+        .log-viewer {
+            height: 500px;
+            font-size: 12px;
+        }
+    }
+</style>
+
+<script>
+
+    $(document).ready(function () {
+
+        $('#btnLimpiarLog').on(
+            'click',
+            function () {
+
+                var boton =
+                    $(this);
+
+
+                boton.prop(
+                    'disabled',
+                    true
+                );
+
+
+                // =================================================
+                // DATOS
+                // =================================================
+
+                var cid =
+                    @Model.Cid;
+
+
+                var subject =
+                    '@Html.Raw(
+                        HttpUtility.JavaScriptStringEncode(
+                            Model.Subject ?? ""
+                        )
+                    )';
+
+
+                var consumer =
+                    '@Html.Raw(
+                        HttpUtility.JavaScriptStringEncode(
+                            consumerParaLog ?? ""
+                        )
+                    )';
+
+
+                // =================================================
+                // VALIDACIÓN
+                // =================================================
+
+                if (
+                    !consumer
+                    ||
+                    consumer.trim() === ''
+                ) {
+
+                    alert(
+                        'No se pudo determinar el Consumer del log.'
+                    );
+
+
+                    boton.prop(
+                        'disabled',
+                        false
+                    );
+
+
+                    return;
+                }
+
+
+                // =================================================
+                // DEBUG
+                // =================================================
+
+                console.log(
+                    'Limpiando log:',
+                    {
+                        cid: cid,
+                        subject: subject,
+                        consumer: consumer
+                    }
+                );
+
+
+                // =================================================
+                // AJAX
+                // =================================================
+
+                $.ajax({
+
+                    url:
+                        '@Url.Action(
+                            "LimpiarLog",
+                            "Home"
+                        )',
+
+                    type:
+                        'POST',
+
+                    data:
+                    {
+                        cid:
+                            cid,
+
+                        subject:
+                            subject,
+
+                        consumer:
+                            consumer
+                    },
+
+
+                    // =================================================
+                    // SUCCESS
+                    // =================================================
+
+                    success:
+                        function (respuesta) {
+
+                            console.log(
+                                'Respuesta:',
+                                respuesta
+                            );
+
+
+                            if (
+                                respuesta
+                                &&
+                                respuesta.ok
+                            ) {
+
+                                $('#logViewer').html(
+
+                                    '<div class="log-line empty-log">' +
+
+                                    'Log limpiado correctamente.' +
+
+                                    '</div>'
+
+                                );
+
+                            }
+                            else {
+
+                                alert(
+
+                                    respuesta
+                                    &&
+                                    respuesta.mensaje
+                                        ? respuesta.mensaje
+                                        : 'No se pudo limpiar el log.'
+
+                                );
+
+                            }
+
+                        },
+
+
+                    // =================================================
+                    // ERROR
+                    // =================================================
+
+                    error:
+                        function (
+                            xhr
+                        ) {
+
+                            console.error(
+                                'Error limpiando log:',
+                                xhr
+                            );
+
+
+                            alert(
+                                'No se pudo limpiar el log.'
+                            );
+
+                        },
+
+
+                    // =================================================
+                    // COMPLETE
+                    // =================================================
+
+                    complete:
+                        function () {
+
+                            boton.prop(
+                                'disabled',
+                                false
+                            );
+
+                        }
+
+                });
+
+            }
+
+        );
+
+    });
+
+</script>
