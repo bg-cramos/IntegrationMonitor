@@ -1,100 +1,121 @@
 ﻿@model IntegrationMonitor.Models.LogViewModel
-@using System.Linq
+
 @using System.Web
+
 @{
-    ViewBag.Title = "LOG";
+    ViewBag.Title = "NATS MESSAGE";
 
-    // =====================================================
-    // CONSUMER REAL
-    // =====================================================
-    // Preferimos Consumer.
-    // Si por alguna razón viene vacío, usamos ConsumerName.
-    // Esto evita enviar consumer="" al controlador.
-    //
-    string consumerParaLog =
-        !string.IsNullOrWhiteSpace(Model.Consumer)
-            ? Model.Consumer.Trim()
-            : (Model.ConsumerName ?? "").Trim();
-
+    string subject =
+        (Model.Subject ?? "").Trim();
 }
-<div class="log-container">
+
+<div class="message-container">
+
     <!-- ================================================= -->
     <!-- HEADER -->
     <!-- ================================================= -->
-    <div class="log-header">
+
+    <div class="message-header">
+
         <div>
+
             <h1>
-                @Model.ConsumerName
+                NATS MESSAGE MONITOR
             </h1>
+
             <p>
-                Cid @Model.Cid
+
+                CID:
+                <strong>
+                    @Model.Cid
+                </strong>
+
                 <span class="separator">|</span>
+
                 Subject:
-                @Model.Subject
-                <span class="separator">|</span>
-                Consumer:
-                [@consumerParaLog]
-                <br />
-                Model.Consumer:
-                [@Model.Consumer]
-                <br />
-                Model.ConsumerName:
-                [@Model.ConsumerName]
+                <strong>
+                    @Model.Subject
+                </strong>
 
             </p>
+
         </div>
 
-        <!-- ================================================= -->
-        <!-- ACCIONES -->
-        <!-- ================================================= -->
-        <div class="log-actions">
-            <button type="button"
-                    id="btnLimpiarLog"
-                    class="btn-clear">
-                LIMPIAR
+        <div class="connection-status">
 
-            </button>
+            <span id="connectionIndicator"
+                  class="status-dot disconnected">
+            </span>
+
+            <span id="connectionText">
+                DESCONECTADO
+            </span>
+
         </div>
+
     </div>
 
+
     <!-- ================================================= -->
-    <!-- VISOR -->
+    <!-- INFORMACION -->
     <!-- ================================================= -->
-    <div id="logViewer"
-         class="log-viewer">
-        @if (
-            Model.LineasLog != null
-            &&
-            Model.LineasLog.Any()
-        )
-        {
-            foreach (
-                var linea
-                in Model.LineasLog
-            )
-            {
-                <div class="log-line">
-                    @linea
-                </div>
-            }
-        }
-        else
-        {
-            <div class="log-line empty-log">
-                No hay información disponible en el log.
-            </div>
-        }
+
+    <div class="message-info">
+
+        <div>
+
+            <span class="info-label">
+                ESTADO
+            </span>
+
+            <span id="messageStatus"
+                  class="info-value">
+                Esperando mensajes...
+            </span>
+
+        </div>
+
+        <div>
+
+            <span class="info-label">
+                ÚLTIMO MENSAJE
+            </span>
+
+            <span id="lastMessage"
+                  class="info-value">
+                -
+            </span>
+
+        </div>
+
     </div>
+
+
+    <!-- ================================================= -->
+    <!-- VISOR JSON -->
+    <!-- ================================================= -->
+
+    <div id="messageViewer"
+         class="message-viewer">
+
+        <div class="empty-message">
+
+            Esperando mensaje NATS...
+
+        </div>
+
+    </div>
+
 </div>
 
-<style>
 
+<style>
 
     /* ============================================= */
     /* CONTENEDOR */
     /* ============================================= */
 
-    .log-container {
+    .message-container {
         width: 100%;
         max-width: 1500px;
         margin: 0 auto;
@@ -106,110 +127,169 @@
     /* HEADER */
     /* ============================================= */
 
-    .log-header {
+    .message-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: #111827;
-        color: white;
+        background: #050505;
+        color: #ffffff;
         padding: 20px 25px;
+        border: 1px solid #2a2a2a;
+        border-bottom: none;
         border-radius: 8px 8px 0 0;
+        font-family: Consolas, "Courier New", monospace;
     }
 
 
-        .log-header h1 {
+        .message-header h1 {
             margin: 0;
             font-size: 22px;
             font-weight: 600;
+            color: #ffffff;
         }
 
 
-        .log-header p {
-            margin: 6px 0 0;
-            color: #9ca3af;
+        .message-header p {
+            margin: 7px 0 0;
+            color: #bdbdbd;
             font-size: 13px;
+        }
+
+
+        .message-header strong {
+            color: #ffffff;
         }
 
 
     .separator {
         margin: 0 8px;
-        color: #4b5563;
+        color: #666666;
     }
 
 
     /* ============================================= */
-    /* BOTÓN */
+    /* ESTADO CONEXION */
     /* ============================================= */
 
-    .log-actions {
+    .connection-status {
         display: flex;
         align-items: center;
-    }
-
-
-    .btn-clear {
-        border: 1px solid #374151;
-        background: #1f2937;
-        color: #f9fafb;
-        padding: 8px 14px;
-        border-radius: 5px;
-        font-size: 11px;
-        font-weight: bold;
-        cursor: pointer;
-        transition: all .15s ease;
-    }
-
-
-        .btn-clear:hover {
-            background: #dc2626;
-            border-color: #dc2626;
-            color: white;
-        }
-
-
-        .btn-clear:active {
-            transform: scale(.97);
-        }
-
-
-        .btn-clear:disabled {
-            opacity: .6;
-            cursor: wait;
-        }
-
-
-    /* ============================================= */
-    /* VISOR */
-    /* ============================================= */
-
-    .log-viewer {
-        background: #050505;
-        color: #d1d5db;
-        height: 650px;
-        padding: 18px;
+        gap: 8px;
         font-family: Consolas, "Courier New", monospace;
-        font-size: 13px;
+        font-size: 12px;
+        font-weight: bold;
+        color: #ffffff;
+    }
+
+
+    .status-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+
+
+        .status-dot.connected {
+            background: #22c55e;
+            box-shadow: 0 0 5px #22c55e, 0 0 10px #22c55e;
+        }
+
+
+        .status-dot.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 5px #ef4444, 0 0 10px #ef4444;
+        }
+
+
+    /* ============================================= */
+    /* INFORMACION */
+    /* ============================================= */
+
+    .message-info {
+        display: flex;
+        gap: 40px;
+        background: #0a0a0a;
+        color: #ffffff;
+        padding: 12px 20px;
+        border-left: 1px solid #2a2a2a;
+        border-right: 1px solid #2a2a2a;
+        border-bottom: 1px solid #2a2a2a;
+        font-family: Consolas, "Courier New", monospace;
+    }
+
+
+    .info-label {
+        color: #777777;
+        font-size: 10px;
+        font-weight: bold;
+        margin-right: 8px;
+    }
+
+
+    .info-value {
+        color: #ffffff;
+        font-size: 12px;
+    }
+
+
+    /* ============================================= */
+    /* VISOR ESTILO CMD */
+    /* ============================================= */
+
+    .message-viewer {
+        background: #000000;
+        color: #ffffff;
+        height: 650px;
+        padding: 20px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 14px;
         line-height: 1.6;
+        border-left: 1px solid #2a2a2a;
+        border-right: 1px solid #2a2a2a;
+        border-bottom: 1px solid #2a2a2a;
         border-radius: 0 0 8px 8px;
-        overflow-y: auto;
-        overflow-x: auto;
+        overflow: auto;
         box-sizing: border-box;
     }
 
 
     /* ============================================= */
-    /* LINEAS */
+    /* JSON */
     /* ============================================= */
 
-    .log-line {
-        padding: 2px 0;
+    .json-message {
+        margin: 0;
+        padding: 0;
         white-space: pre-wrap;
         word-break: break-word;
+        color: #ffffff;
+        background: transparent;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.6;
     }
 
 
-    .empty-log {
-        color: #6b7280;
+    /* ============================================= */
+    /* MENSAJE VACIO */
+    /* ============================================= */
+
+    .empty-message {
+        color: #777777;
+        text-align: center;
+        padding-top: 250px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 14px;
+    }
+
+
+    /* ============================================= */
+    /* NUEVO MENSAJE */
+    /* ============================================= */
+
+    .message-received {
+        color: #ffffff;
     }
 
 
@@ -217,25 +297,25 @@
     /* SCROLLBAR */
     /* ============================================= */
 
-    .log-viewer::-webkit-scrollbar {
+    .message-viewer::-webkit-scrollbar {
         width: 10px;
         height: 10px;
     }
 
 
-    .log-viewer::-webkit-scrollbar-track {
-        background: #111111;
+    .message-viewer::-webkit-scrollbar-track {
+        background: #080808;
     }
 
 
-    .log-viewer::-webkit-scrollbar-thumb {
-        background: #374151;
+    .message-viewer::-webkit-scrollbar-thumb {
+        background: #444444;
         border-radius: 5px;
     }
 
 
-        .log-viewer::-webkit-scrollbar-thumb:hover {
-            background: #4b5563;
+        .message-viewer::-webkit-scrollbar-thumb:hover {
+            background: #666666;
         }
 
 
@@ -245,227 +325,309 @@
 
     @@media (max-width: 700px) {
 
-        .log-header {
+        .message-container {
+            padding: 10px 5px 20px;
+        }
+
+
+        .message-header {
             flex-direction: column;
             align-items: flex-start;
             gap: 15px;
         }
 
 
-        .log-actions {
-            width: 100%;
+        .message-info {
+            flex-direction: column;
+            gap: 8px;
         }
 
 
-        .btn-clear {
-            width: 100%;
-        }
-
-
-        .log-viewer {
+        .message-viewer {
             height: 500px;
+            font-size: 12px;
+        }
+
+
+        .json-message {
             font-size: 12px;
         }
     }
 </style>
 
+
 <script>
 
     $(document).ready(function () {
 
-        $('#btnLimpiarLog').on(
-            'click',
-            function () {
-
-                var boton =
-                    $(this);
+        var cid =
+            @Model.Cid;
 
 
-                boton.prop(
-                    'disabled',
-                    true
+        var subject =
+            '@Html.Raw(
+                HttpUtility.JavaScriptStringEncode(
+                    subject
+                )
+            )';
+
+
+        console.log(
+            'Monitor NATS iniciado:',
+            {
+                cid: cid,
+                subject: subject
+            }
+        );
+
+
+        /*
+         * =====================================================
+         * MOSTRAR MENSAJE
+         * =====================================================
+         */
+
+        function mostrarMensaje(
+            mensaje
+        ) {
+
+            if (
+                mensaje === null
+                ||
+                mensaje === undefined
+            ) {
+                return;
+            }
+
+
+            var texto =
+                String(
+                    mensaje
                 );
 
 
-                // =================================================
-                // DATOS
-                // =================================================
+            /*
+             * Intentamos formatear JSON solamente
+             * para visualizarlo.
+             *
+             * NO modificamos el mensaje original.
+             */
 
-                var cid =
-                    @Model.Cid;
-
-
-                var subject =
-                    '@Html.Raw(
-                        HttpUtility.JavaScriptStringEncode(
-                            Model.Subject ?? ""
-                        )
-                    )';
+            var contenido =
+                texto;
 
 
-                var consumer =
-                    '@Html.Raw(
-                        HttpUtility.JavaScriptStringEncode(
-                            consumerParaLog ?? ""
-                        )
-                    )';
+            try {
 
-
-                // =================================================
-                // VALIDACIÓN
-                // =================================================
-
-                if (
-                    !consumer
-                    ||
-                    consumer.trim() === ''
-                ) {
-
-                    alert(
-                        'No se pudo determinar el Consumer del log.'
+                var json =
+                    JSON.parse(
+                        texto
                     );
 
 
-                    boton.prop(
-                        'disabled',
-                        false
+                contenido =
+                    JSON.stringify(
+                        json,
+                        null,
+                        2
                     );
 
+            }
+            catch (e) {
 
-                    return;
-                }
+                /*
+                 * Si no es JSON válido,
+                 * mostramos exactamente
+                 * lo recibido.
+                 */
+
+                contenido =
+                    texto;
+            }
 
 
-                // =================================================
-                // DEBUG
-                // =================================================
+            $('#messageViewer').prepend(
 
-                console.log(
-                    'Limpiando log:',
-                    {
-                        cid: cid,
-                        subject: subject,
-                        consumer: consumer
-                    }
+                $('<pre>')
+                    .addClass(
+                        'json-message message-received'
+                    )
+                    .text(
+                        contenido
+                    )
+
+            );
+
+
+            $('#messageStatus')
+                .text(
+                    'Mensaje recibido'
                 );
 
 
-                // =================================================
-                // AJAX
-                // =================================================
+            $('#lastMessage')
+                .text(
+                    new Date()
+                        .toLocaleTimeString()
+                );
 
-                $.ajax({
-
-                    url:
-                        '@Url.Action(
-                            "LimpiarLog",
-                            "Home"
-                        )',
-
-                    type:
-                        'POST',
-
-                    data:
-                    {
-                        cid:
-                            cid,
-
-                        subject:
-                            subject,
-
-                        consumer:
-                            consumer
-                    },
+        }
 
 
-                    // =================================================
-                    // SUCCESS
-                    // =================================================
+        /*
+         * =====================================================
+         * POLLING
+         *
+         * Consultamos al servidor cada segundo.
+         * =====================================================
+         */
 
-                    success:
-                        function (respuesta) {
-
-                            console.log(
-                                'Respuesta:',
-                                respuesta
-                            );
-
-
-                            if (
-                                respuesta
-                                &&
-                                respuesta.ok
-                            ) {
-
-                                $('#logViewer').html(
-
-                                    '<div class="log-line empty-log">' +
-
-                                    'Log limpiado correctamente.' +
-
-                                    '</div>'
-
-                                );
-
-                            }
-                            else {
-
-                                alert(
-
-                                    respuesta
-                                    &&
-                                    respuesta.mensaje
-                                        ? respuesta.mensaje
-                                        : 'No se pudo limpiar el log.'
-
-                                );
-
-                            }
-
-                        },
+        var ultimoMensajeId =
+            0;
 
 
-                    // =================================================
-                    // ERROR
-                    // =================================================
+        function consultarMensaje() {
 
-                    error:
-                        function (
-                            xhr
+            $.ajax({
+
+                url:
+                    '@Url.Action(
+                        "MensajeNats",
+                        "Home"
+                    )',
+
+                type:
+                    'GET',
+
+                data:
+                {
+                    cid:
+                        cid,
+
+                    subject:
+                        subject,
+
+                    ultimoMensajeId:
+                        ultimoMensajeId
+                },
+
+                success:
+                    function (respuesta) {
+
+                        /*
+                         * =====================================
+                         * ESTADO DE CONEXION
+                         * =====================================
+                         */
+
+                        if (
+                            respuesta
+                            &&
+                            respuesta.conectado
                         ) {
 
-                            console.error(
-                                'Error limpiando log:',
-                                xhr
-                            );
+                            $('#connectionIndicator')
+                                .removeClass(
+                                    'disconnected'
+                                )
+                                .addClass(
+                                    'connected'
+                                );
 
 
-                            alert(
-                                'No se pudo limpiar el log.'
-                            );
+                            $('#connectionText')
+                                .text(
+                                    'CONECTADO'
+                                );
 
-                        },
+                        }
+                        else {
+
+                            $('#connectionIndicator')
+                                .removeClass(
+                                    'connected'
+                                )
+                                .addClass(
+                                    'disconnected'
+                                );
 
 
-                    // =================================================
-                    // COMPLETE
-                    // =================================================
+                            $('#connectionText')
+                                .text(
+                                    'DESCONECTADO'
+                                );
 
-                    complete:
-                        function () {
+                        }
 
-                            boton.prop(
-                                'disabled',
-                                false
+
+                        /*
+                         * =====================================
+                         * MENSAJE NUEVO
+                         * =====================================
+                         */
+
+                        if (
+                            respuesta
+                            &&
+                            respuesta.hayMensaje
+                        ) {
+
+                            ultimoMensajeId =
+                                respuesta.id;
+
+
+                            mostrarMensaje(
+                                respuesta.mensaje
                             );
 
                         }
 
-                });
+                    },
 
-            }
 
+                error:
+                    function () {
+
+                        $('#connectionIndicator')
+                            .removeClass(
+                                'connected'
+                            )
+                            .addClass(
+                                'disconnected'
+                            );
+
+
+                        $('#connectionText')
+                            .text(
+                                'DESCONECTADO'
+                            );
+
+                    }
+
+            });
+
+        }
+
+
+        /*
+         * ================================================
+         * CONSULTAR CADA SEGUNDO
+         * ================================================
+         */
+
+        setInterval(
+            consultarMensaje,
+            1000
         );
+
+
+        /*
+         * ================================================
+         * PRIMERA CONSULTA INMEDIATA
+         * ================================================
+         */
+
+        consultarMensaje();
 
     });
 

@@ -3,28 +3,22 @@
 using System;
 using System.Collections.Generic;
 using System.Configuration;
-using System.IO;
 using System.Linq;
 using System.Net;
-using System.Text.RegularExpressions;
+using System.Threading;
 
 using Newtonsoft.Json.Linq;
+
+// IMPORTANTE:
+// Este namespace corresponde al paquete NATS.Client.
+// Si Visual Studio marca error aquí,
+// significa que todavía falta instalar NATS.Client.
+using NATS.Client;
 
 namespace IntegrationMonitor.Services
 {
     public class MonitorService
     {
-        public class LogInfo
-        {
-            public string Consumer { get; set; }
-
-            public string ConsumerName { get; set; }
-
-            public string LogFile { get; set; }
-
-            public List<string> LineasLog { get; set; }
-        }
-
         // =====================================================
         // CONFIGURACION
         // =====================================================
@@ -33,6 +27,7 @@ namespace IntegrationMonitor.Services
         {
             return ConfigurationManager.AppSettings[key];
         }
+
 
         // =====================================================
         // NATS
@@ -47,7 +42,11 @@ namespace IntegrationMonitor.Services
                         "NatsServer"
                     );
 
-                if (string.IsNullOrWhiteSpace(valor))
+                if (
+                    string.IsNullOrWhiteSpace(
+                        valor
+                    )
+                )
                 {
                     return "127.0.0.1";
                 }
@@ -55,6 +54,7 @@ namespace IntegrationMonitor.Services
                 return valor.Trim();
             }
         }
+
 
         private int NatsServerPort
         {
@@ -78,6 +78,7 @@ namespace IntegrationMonitor.Services
             }
         }
 
+
         private int NatsMonitoringPort
         {
             get
@@ -100,6 +101,7 @@ namespace IntegrationMonitor.Services
             }
         }
 
+
         private string NatsMonitoringUrl
         {
             get
@@ -113,116 +115,582 @@ namespace IntegrationMonitor.Services
             }
         }
 
+
         // =====================================================
-        // RUTAS DE LOG
+        // MENSAJES NATS
         // =====================================================
 
-        private string NatsPythonLog
+        private class MensajeNats
         {
-            get
-            {
-                return ObtenerRutaLogConfigurada(
-                    "Log.globalcontactform.natspython"
-                );
-            }
+            public long Id { get; set; }
+
+            public int Cid { get; set; }
+
+            public string Subject { get; set; }
+
+            public string Mensaje { get; set; }
+
+            public DateTime Fecha { get; set; }
         }
 
-        private string ContactFormPbpLog
-        {
-            get
-            {
-                return ObtenerRutaLogConfigurada(
-                    "Log.globalcontactform.contactformpbp"
-                );
-            }
-        }
 
-        private string GitHubLog
-        {
-            get
-            {
-                return ObtenerRutaLogConfigurada(
-                    "Log.github"
+        private static readonly object
+            MensajesLock =
+                new object();
+
+
+        private static readonly Dictionary<
+            string,
+            MensajeNats
+        >
+            UltimosMensajes =
+                new Dictionary<
+                    string,
+                    MensajeNats
+                >(
+                    StringComparer.OrdinalIgnoreCase
                 );
-            }
-        }
+
+
+        private static long
+            SecuenciaMensaje = 0;
 
         // =====================================================
-        // CONSTRUIR RUTA DE LOG REMOTA
+        // ESTADISTICAS DE ACTIVIDAD NATS
         // =====================================================
 
-        private string ObtenerRutaLogConfigurada(
-            string prefijo
-        )
+        private static long
+            TotalRecibidos = 0;
+
+        private static long
+            TotalProcesados = 0;
+
+        private static long
+            TotalErrores = 0;
+
+        private static DateTime?
+            FechaUltimoMensaje = null;
+
+        private static readonly object
+            EstadisticasLock =
+                new object();
+
+
+
+        // =====================================================
+        // SUSCRIPCIONES
+        // =====================================================
+
+        private static readonly object
+            SuscripcionesLock =
+                new object();
+
+
+        private static IConnection
+    ConexionMonitorNats = null;
+
+        private static readonly object
+            ConexionMonitorLock =
+                new object();
+
+
+
+        private static readonly Dictionary<
+            string,
+            IAsyncSubscription
+        >
+            SuscripcionesNats =
+                new Dictionary<
+                    string,
+                    IAsyncSubscription
+                >(
+                    StringComparer.OrdinalIgnoreCase
+                );
+
+
+        // =====================================================
+        // OBTENER CONEXION DEL MONITOR
+        // =====================================================
+
+        private IConnection ObtenerConexionMonitorNats(
+     out string error
+ )
         {
-            string server =
-                ObtenerConfiguracion(
-                    prefijo + ".Server"
-                );
+            error = "";
 
-            string share =
-                ObtenerConfiguracion(
-                    prefijo + ".Share"
-                );
-
-            string path =
-                ObtenerConfiguracion(
-                    prefijo + ".Path"
-                );
-
-            // -------------------------------------------------
-            // VALIDAR
-            // -------------------------------------------------
-
-            if (
-                string.IsNullOrWhiteSpace(server)
-                ||
-                string.IsNullOrWhiteSpace(share)
-                ||
-                string.IsNullOrWhiteSpace(path)
+            lock (
+                ConexionMonitorLock
             )
             {
-                return null;
+                try
+                {
+                    // =================================================
+                    // YA EXISTE UNA CONEXION ACTIVA
+                    // =================================================
+
+                    if (
+                        ConexionMonitorNats != null
+                        &&
+                        ConexionMonitorNats.State
+                            == ConnState.CONNECTED
+                    )
+                    {
+                        return ConexionMonitorNats;
+                    }
+
+
+                    // =================================================
+                    // CREAR CONEXION DEL MONITOR
+                    // =================================================
+
+                    ConnectionFactory factory =
+                        new ConnectionFactory();
+
+
+                    Options options =
+                        ConnectionFactory.GetDefaultOptions();
+
+
+                    options.Url =
+                        "nats://"
+                        + NatsServerHost
+                        + ":"
+                        + NatsServerPort;
+
+
+                    ConexionMonitorNats =
+                        factory.CreateConnection(
+                            options
+                        );
+
+
+                    return ConexionMonitorNats;
+                }
+                catch (
+                    Exception ex
+                )
+                {
+                    error =
+                        ex.Message;
+
+                    ConexionMonitorNats =
+                        null;
+
+                    return null;
+                }
+            }
+        }
+
+
+
+
+        // =====================================================
+        // SUSCRIBIRSE A SUBJECT
+        // =====================================================
+
+        public bool Suscribirse(
+            int cid,
+            string subject,
+            out string error
+        )
+        {
+            error = "";
+
+
+            subject =
+                (subject ?? "").Trim();
+
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    subject
+                )
+            )
+            {
+                error =
+                    "El Subject está vacío.";
+
+                return false;
             }
 
-            server =
-                server.Trim();
 
-            share =
-                share.Trim();
+            lock (
+                SuscripcionesLock
+            )
+            {
+                // -------------------------------------------------
+                // YA ESTÁ SUSCRIPTO
+                // -------------------------------------------------
 
-            path =
-                path.Trim();
+                if (
+                    SuscripcionesNats.ContainsKey(
+                        subject
+                    )
+                )
+                {
+                    return true;
+                }
 
-            // -------------------------------------------------
-            // NORMALIZAR
-            // -------------------------------------------------
 
-            server =
-                server
-                    .TrimStart('\\')
-                    .TrimEnd('\\');
+                // -------------------------------------------------
+                // OBTENER CONEXION UNICA
+                // -------------------------------------------------
 
-            share =
-                share
-                    .TrimStart('\\')
-                    .TrimEnd('\\');
+                IConnection connection =
+                    ObtenerConexionMonitorNats(
+                        out error
+                    );
 
-            path =
-                path
-                    .TrimStart('\\');
 
-            // -------------------------------------------------
-            // RUTA UNC
-            // -------------------------------------------------
+                if (
+                    connection == null
+                )
+                {
+                    return false;
+                }
 
+
+                try
+                {
+                    IAsyncSubscription subscription =
+                    connection.SubscribeAsync(
+                        subject
+                    );
+
+
+                    System.Diagnostics.Debug.WriteLine(
+                        "NATS MONITOR SUSCRIPTO - Subject: "
+                        + subject
+                    );
+
+
+                    subscription.MessageHandler +=
+                        delegate (
+                            object sender,
+                            MsgHandlerEventArgs args
+                        )
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                "NATS MONITOR RECIBIO MENSAJE - Subject: "
+                                + subject
+                            );
+
+                            ProcesarMensajeNats(
+                                0,
+                                subject,
+                                args.Message
+                            );
+                        };
+
+
+                    subscription.Start();
+
+
+                    System.Diagnostics.Debug.WriteLine(
+                        "NATS MONITOR START - Subject: "
+                        + subject
+                    );
+
+
+
+                    SuscripcionesNats[
+                        subject
+                    ] =
+                        subscription;
+
+
+                    return true;
+                }
+                catch (
+                    Exception ex
+                )
+                {
+                    error =
+                        ex.Message;
+
+                    return false;
+                }
+            }
+        }
+
+
+
+        // =====================================================
+        // RECIBIR MENSAJE
+        // =====================================================
+
+        private void ProcesarMensajeNats(
+            int cid,
+            string subject,
+            Msg mensaje
+        )
+        {
+            if (
+                mensaje == null
+            )
+            {
+                return;
+            }
+
+
+            // =================================================
+            // MENSAJE RECIBIDO
+            // =================================================
+
+            Interlocked.Increment(
+                ref TotalRecibidos
+            );
+
+            System.Diagnostics.Debug.WriteLine(
+                "NATS RECIBIDO - TotalRecibidos: "
+                + TotalRecibidos
+            );
+
+
+
+            try
+            {
+                string contenido =
+                    mensaje.Data != null
+                        ? System.Text.Encoding.UTF8.GetString(
+                            mensaje.Data
+                        )
+                        : "";
+
+
+                long id =
+                    Interlocked.Increment(
+                        ref SecuenciaMensaje
+                    );
+
+
+                var nuevoMensaje =
+                    new MensajeNats
+                    {
+                        Id =
+                            id,
+
+                        Cid =
+                            cid,
+
+                        Subject =
+                            subject,
+
+                        Mensaje =
+                            contenido,
+
+                        Fecha =
+                            DateTime.Now
+                    };
+
+
+                string clave =
+                    ConstruirClave(
+                        cid,
+                        subject
+                    );
+
+
+                // =================================================
+                // GUARDAR ULTIMO MENSAJE
+                // =================================================
+
+                lock (
+                    MensajesLock
+                )
+                {
+                    UltimosMensajes[
+                        clave
+                    ] =
+                        nuevoMensaje;
+                }
+
+
+                // =================================================
+                // ESTADISTICAS
+                // =================================================
+
+                lock (
+                    EstadisticasLock
+                )
+                {
+                    TotalProcesados++;
+
+                    FechaUltimoMensaje =
+                        nuevoMensaje.Fecha;
+                    System.Diagnostics.Debug.WriteLine(
+                        "NATS PROCESADO - TotalProcesados: "
+                        + TotalProcesados
+                    );
+
+                }
+            }
+            catch
+            {
+                // =================================================
+                // ERROR PROCESANDO MENSAJE
+                // =================================================
+
+                Interlocked.Increment(
+                    ref TotalErrores
+                );
+            }
+        }
+
+
+
+        // =====================================================
+        // OBTENER ULTIMO MENSAJE
+        // =====================================================
+
+        public object ObtenerUltimoMensaje(
+            int cid,
+            string subject,
+            long ultimoMensajeId
+        )
+        {
+            subject =
+                (subject ?? "").Trim();
+
+
+            if (
+                string.IsNullOrWhiteSpace(
+                    subject
+                )
+            )
+            {
+                return new
+                {
+                    conectado = false,
+
+                    hayMensaje = false,
+
+                    id = ultimoMensajeId,
+
+                    mensaje = "",
+
+                    error = "El Subject está vacío."
+                };
+            }
+
+
+            string error;
+
+
+            bool conectado =
+                Suscribirse(
+                    cid,
+                    subject,
+                    out error
+                );
+
+
+            string clave =
+                ConstruirClave(
+                    cid,
+                    subject
+                );
+
+
+            lock (
+                MensajesLock
+            )
+            {
+                MensajeNats mensaje;
+
+
+                if (
+                    !UltimosMensajes.TryGetValue(
+                        clave,
+                        out mensaje
+                    )
+                )
+                {
+                    return new
+                    {
+                        conectado =
+                            conectado,
+
+                        hayMensaje =
+                            false,
+
+                        id =
+                            ultimoMensajeId,
+
+                        mensaje =
+                            "",
+
+                        error =
+                            error
+                    };
+                }
+
+
+                if (
+                    mensaje.Id
+                    <=
+                    ultimoMensajeId
+                )
+                {
+                    return new
+                    {
+                        conectado =
+                            conectado,
+
+                        hayMensaje =
+                            false,
+
+                        id =
+                            ultimoMensajeId,
+
+                        mensaje =
+                            "",
+
+                        error =
+                            error
+                    };
+                }
+
+
+                return new
+                {
+                    conectado =
+                        conectado,
+
+                    hayMensaje =
+                        true,
+
+                    id =
+                        mensaje.Id,
+
+                    mensaje =
+                        mensaje.Mensaje,
+
+                    error =
+                        error
+                };
+            }
+        }
+
+
+
+        // =====================================================
+        // CLAVE SUSCRIPCION
+        // =====================================================
+
+        private string ConstruirClave(
+            int cid,
+            string subject
+        )
+        {
+            // Una sola suscripción por Subject.
+            //
+            // El CID identifica una conexión existente en NATS,
+            // pero nuestro monitor crea su propia conexión.
+            //
+            // Por eso NO debe formar parte de la clave.
             return
-                @"\\"
-                + server
-                + @"\"
-                + share
-                + @"\"
-                + path;
+                (subject ?? "").Trim();
         }
 
         // =====================================================
@@ -234,6 +702,7 @@ namespace IntegrationMonitor.Services
             var estado =
                 new IntegrationStatus();
 
+                       
             // -------------------------------------------------
             // SERVIDOR NATS
             // -------------------------------------------------
@@ -243,8 +712,10 @@ namespace IntegrationMonitor.Services
                 + ":"
                 + NatsServerPort;
 
+
             estado.UltimaActualizacion =
                 DateTime.Now;
+
 
             // -------------------------------------------------
             // NATS
@@ -253,45 +724,131 @@ namespace IntegrationMonitor.Services
             estado.NatsConnected =
                 VerificarNats();
 
+
             estado.NatsStatus =
                 estado.NatsConnected
                     ? "CONNECTED"
                     : "DISCONNECTED";
+
 
             // -------------------------------------------------
             // SUBJECTS Y CONEXIONES NATS
             // -------------------------------------------------
 
             if (
-                estado.NatsConnected
-            )
+    estado.NatsConnected
+)
             {
                 ObtenerSubjectsNats(
                     estado
                 );
-            }
 
-            // -------------------------------------------------
-            // LOG NATS PYTHON
-            // -------------------------------------------------
+                // -------------------------------------------------
+                // ACTIVAR MONITOREO DE LOS SUBJECTS
+                // -------------------------------------------------
 
-            AnalizarNatsPython(
-                estado
-            );
+                foreach (
+                    NatsSubjectStatus subjectStatus
+                    in estado.Subjects
+                )
+                {
+                    string error;
 
-            // -------------------------------------------------
-            // LOG GITHUB
-            // -------------------------------------------------
+                    bool suscripto =
+                        Suscribirse(
+                            0,
+                            subjectStatus.Subject,
+                            out error
+                        );
 
-            AnalizarGitHub(
-                estado
-            );
+                    System.Diagnostics.Debug.WriteLine(
+                        "NATS SUSCRIPCION - Subject: "
+                        + subjectStatus.Subject
+                        + " | OK: "
+                        + suscripto
+                        + " | Error: "
+                        + error
+                    );
 
-            // -------------------------------------------------
-            // ORDENAR EVENTOS
-            // -------------------------------------------------
+                    if (!suscripto)
+                    {
+                        estado.Eventos.Add(
+                            new IntegrationEvent
+                            {
+                                Fecha =
+                                    DateTime.Now,
 
-            estado.Eventos =
+                                Tipo =
+                                    "NATS_ERROR",
+
+                                Mensaje =
+                                    "No se pudo suscribir al Subject: "
+                                    + subjectStatus.Subject
+                                    + " | Error: "
+                                    + error
+                            }
+                        );
+                    }
+                }
+
+
+                //    // -------------------------------------------------
+                //    // ACTIVAR MONITOREO DE LOS SUBJECTS ORIGINALES
+                //    // -------------------------------------------------
+
+                //                foreach (
+                //    NatsConnectionStatus connection
+                //    in estado.NatsConnections
+                //)
+                //    {
+                //        foreach (
+                //            string subject
+                //            in connection.SubscriptionsList
+                //        )
+                //        {
+                //            string error;
+
+                //            bool suscripto =
+                //                Suscribirse(
+                //                    connection.Cid,
+                //                    subject,
+                //                    out error
+                //                );
+
+                //            estado.Eventos.Add(
+                //                new IntegrationEvent
+                //                {
+                //                    Fecha =
+                //                        DateTime.Now,
+
+                //                    Tipo =
+                //                        suscripto
+                //                            ? "NATS_SUBSCRIBED"
+                //                            : "NATS_ERROR",
+
+                //                    Mensaje =
+                //                        "CID: "
+                //                        + connection.Cid
+                //                        + " | Subject: "
+                //                        + subject
+                //                        + " | OK: "
+                //                        + suscripto
+                //                        + " | Error: "
+                //                        + error
+                //                }
+                //            );
+                //        }
+                //    }
+
+                }
+
+
+
+                // -------------------------------------------------
+                // ORDENAR EVENTOS
+                // -------------------------------------------------
+
+                estado.Eventos =
                 estado.Eventos
                     .OrderByDescending(
                         x => x.Fecha
@@ -299,355 +856,10 @@ namespace IntegrationMonitor.Services
                     .Take(10)
                     .ToList();
 
+
             return estado;
         }
 
-        // =====================================================
-        // OBTENER LOG
-        // =====================================================
-
-        public LogInfo ObtenerLog(
-            int cid,
-            string subject,
-            string consumer)
-        {
-            var resultado =
-                new LogInfo
-                {
-                    Consumer =
-                        consumer,
-
-                    ConsumerName =
-                        consumer,
-
-                    LogFile =
-                        "",
-
-                    LineasLog =
-                        new List<string>()
-                };
-
-            // -------------------------------------------------
-            // VALIDAR DATOS
-            // -------------------------------------------------
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    subject
-                )
-            )
-            {
-                resultado.LineasLog.Add(
-                    "No se recibió ningún Subject."
-                );
-
-                return resultado;
-            }
-
-            // -------------------------------------------------
-            // OBTENER RUTA
-            // -------------------------------------------------
-
-            string rutaLog =
-                ObtenerRutaLog(
-                    subject,
-                    consumer
-                );
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    rutaLog
-                )
-            )
-            {
-                resultado.LineasLog.Add(
-                    "No existe un archivo de log asociado al Consumer '"
-                    + consumer
-                    + "' y Subject '"
-                    + subject
-                    + "'."
-                );
-
-                return resultado;
-            }
-
-            resultado.LogFile =
-                rutaLog;
-
-            // -------------------------------------------------
-            // VALIDAR ARCHIVO
-            // -------------------------------------------------
-
-            if (
-                !File.Exists(
-                    rutaLog
-                )
-            )
-            {
-                resultado.LineasLog.Add(
-                    "No se encontró el archivo de log:"
-                );
-
-                resultado.LineasLog.Add(
-                    rutaLog
-                );
-
-                return resultado;
-            }
-
-            // -------------------------------------------------
-            // LEER LOG
-            // -------------------------------------------------
-
-            try
-            {
-                string[] lineas =
-                    File.ReadAllLines(
-                        rutaLog
-                    );
-
-                if (
-                    lineas.Length == 0
-                )
-                {
-                    resultado.LineasLog.Add(
-                        "El archivo de log está vacío."
-                    );
-
-                    return resultado;
-                }
-
-                resultado.LineasLog =
-                    lineas
-                        .Reverse()
-                        .ToList();
-            }
-            catch (
-                Exception ex
-            )
-            {
-                resultado.LineasLog.Add(
-                    "ERROR leyendo el archivo de log:"
-                );
-
-                resultado.LineasLog.Add(
-                    ex.Message
-                );
-            }
-
-            return resultado;
-        }
-
-        // =====================================================
-        // DETERMINAR RUTA SEGUN SUBJECT / CONSUMER
-        // =====================================================
-
-        private string ObtenerRutaLog(
-            string subject,
-            string consumer)
-        {
-            string subjectNormalizado =
-                string.IsNullOrWhiteSpace(
-                    subject
-                )
-                    ? ""
-                    : subject.Trim();
-
-            string consumerNormalizado =
-                string.IsNullOrWhiteSpace(
-                    consumer
-                )
-                    ? ""
-                    : consumer.Trim();
-
-            // =================================================
-            // GITHUB
-            // =================================================
-
-            if (
-                string.Equals(
-                    consumerNormalizado,
-                    "github",
-                    StringComparison.OrdinalIgnoreCase
-                )
-                ||
-                string.Equals(
-                    subjectNormalizado,
-                    "github",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
-            {
-                return GitHubLog;
-            }
-
-            // =================================================
-            // GLOBALCONTACTFORM
-            // =================================================
-
-            if (
-                string.Equals(
-                    subjectNormalizado,
-                    "globalcontactform",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
-            {
-                // ---------------------------------------------
-                // NATS PYTHON
-                // ---------------------------------------------
-
-                if (
-                    string.Equals(
-                        consumerNormalizado,
-                        "natspython",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    ||
-                    string.Equals(
-                        consumerNormalizado,
-                        "nats_python",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    ||
-                    string.Equals(
-                        consumerNormalizado,
-                        "python",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                {
-                    return NatsPythonLog;
-                }
-
-                // ---------------------------------------------
-                // CONTACTFORMPBP
-                // ---------------------------------------------
-
-                if (
-                    string.Equals(
-                        consumerNormalizado,
-                        "contactformpbp",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    ||
-                    string.Equals(
-                        consumerNormalizado,
-                        "contactform_pbp",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                    ||
-                    string.Equals(
-                        consumerNormalizado,
-                        "mailchimpcontactformpbp",
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                {
-                    return ContactFormPbpLog;
-                }
-            }
-
-            return null;
-        }
-
-        // =====================================================
-        // LIMPIAR LOG
-        // =====================================================
-
-        public object LimpiarLog(
-            int cid,
-            string subject,
-            string consumer)
-        {
-            string rutaLog =
-                ObtenerRutaLog(
-                    subject,
-                    consumer
-                );
-
-            // -------------------------------------------------
-            // VALIDAR RUTA
-            // -------------------------------------------------
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    rutaLog
-                )
-            )
-            {
-                return new
-                {
-                    ok = false,
-
-                    mensaje =
-                        "No existe un archivo de log asociado al Consumer '"
-                        + consumer
-                        + "' y Subject '"
-                        + subject
-                        + "'."
-                };
-            }
-
-            // -------------------------------------------------
-            // VALIDAR EXISTENCIA
-            // -------------------------------------------------
-
-            if (
-                !File.Exists(
-                    rutaLog
-                )
-            )
-            {
-                return new
-                {
-                    ok = false,
-
-                    mensaje =
-                        "No se encontró el archivo de log: "
-                        + rutaLog
-                };
-            }
-
-            // -------------------------------------------------
-            // LIMPIAR
-            // -------------------------------------------------
-
-            try
-            {
-                File.WriteAllText(
-                    rutaLog,
-                    string.Empty
-                );
-
-                return new
-                {
-                    ok = true,
-
-                    mensaje =
-                        "Log limpiado correctamente.",
-
-                    archivo =
-                        rutaLog
-                };
-            }
-            catch (
-                Exception ex
-            )
-            {
-                return new
-                {
-                    ok = false,
-
-                    mensaje =
-                        "No se pudo limpiar el log: "
-                        + ex.Message,
-
-                    archivo =
-                        rutaLog
-                };
-            }
-        }
 
         // =====================================================
         // VERIFICAR NATS
@@ -681,6 +893,7 @@ namespace IntegrationMonitor.Services
             }
         }
 
+
         // =====================================================
         // OBTENER SUBJECTS NATS
         // =====================================================
@@ -693,6 +906,7 @@ namespace IntegrationMonitor.Services
             {
                 string json;
 
+
                 using (
                     var client =
                         new WebClient()
@@ -701,11 +915,13 @@ namespace IntegrationMonitor.Services
                     client.Encoding =
                         System.Text.Encoding.UTF8;
 
+
                     json =
                         client.DownloadString(
                             NatsMonitoringUrl
                         );
                 }
+
 
                 if (
                     string.IsNullOrWhiteSpace(
@@ -716,14 +932,17 @@ namespace IntegrationMonitor.Services
                     return;
                 }
 
+
                 JObject root =
                     JObject.Parse(
                         json
                     );
 
+
                 JArray connections =
                     root["connections"]
                         as JArray;
+
 
                 if (
                     connections == null
@@ -731,6 +950,7 @@ namespace IntegrationMonitor.Services
                 {
                     return;
                 }
+
 
                 foreach (
                     JToken connectionToken
@@ -740,65 +960,78 @@ namespace IntegrationMonitor.Services
                     var connection =
                         new NatsConnectionStatus();
 
+
                     connection.Cid =
                         connectionToken["cid"] != null
                             ? connectionToken["cid"].Value<int>()
                             : 0;
+
 
                     connection.Kind =
                         connectionToken["kind"] != null
                             ? connectionToken["kind"].ToString()
                             : "";
 
+
                     connection.Type =
                         connectionToken["type"] != null
                             ? connectionToken["type"].ToString()
                             : "";
+
 
                     connection.Ip =
                         connectionToken["ip"] != null
                             ? connectionToken["ip"].ToString()
                             : "";
 
+
                     connection.Port =
                         connectionToken["port"] != null
                             ? connectionToken["port"].Value<int>()
                             : 0;
+
 
                     connection.Start =
                         connectionToken["start"] != null
                             ? connectionToken["start"].ToString()
                             : "";
 
+
                     connection.LastActivity =
                         connectionToken["last_activity"] != null
                             ? connectionToken["last_activity"].ToString()
                             : "";
+
 
                     connection.Uptime =
                         connectionToken["uptime"] != null
                             ? connectionToken["uptime"].ToString()
                             : "";
 
+
                     connection.Subscriptions =
                         connectionToken["subscriptions"] != null
                             ? connectionToken["subscriptions"].Value<int>()
                             : 0;
+
 
                     connection.Lang =
                         connectionToken["lang"] != null
                             ? connectionToken["lang"].ToString()
                             : "";
 
+
                     connection.Version =
                         connectionToken["version"] != null
                             ? connectionToken["version"].ToString()
                             : "";
 
+
                     JArray subscriptions =
                         connectionToken[
                             "subscriptions_list"
                         ] as JArray;
+
 
                     if (
                         subscriptions != null
@@ -812,6 +1045,7 @@ namespace IntegrationMonitor.Services
                             string subject =
                                 subscription.ToString();
 
+
                             if (
                                 string.IsNullOrWhiteSpace(
                                     subject
@@ -821,6 +1055,7 @@ namespace IntegrationMonitor.Services
                                 continue;
                             }
 
+
                             connection
                                 .SubscriptionsList
                                 .Add(
@@ -829,9 +1064,11 @@ namespace IntegrationMonitor.Services
                         }
                     }
 
+
                     estado.NatsConnections.Add(
                         connection
                     );
+
 
                     foreach (
                         string subject
@@ -849,6 +1086,7 @@ namespace IntegrationMonitor.Services
                                         )
                                 );
 
+
                         if (
                             existente == null
                         )
@@ -863,18 +1101,22 @@ namespace IntegrationMonitor.Services
                                         0
                                 };
 
+
                             estado.Subjects.Add(
                                 existente
                             );
                         }
 
+
                         existente.Connections++;
+
 
                         existente.Clients.Add(
                             connection
                         );
                     }
                 }
+
 
                 estado.Subjects =
                     estado.Subjects
@@ -902,591 +1144,6 @@ namespace IntegrationMonitor.Services
                     }
                 );
             }
-        }
-
-        // =====================================================
-        // CONVERTIR CONEXION
-        // =====================================================
-
-        private NatsConnectionStatus ConvertirConexion(
-            Dictionary<string, object> data
-        )
-        {
-            var resultado =
-                new NatsConnectionStatus();
-
-            resultado.Cid =
-                ObtenerInt(
-                    data,
-                    "cid"
-                );
-
-            resultado.Kind =
-                ObtenerString(
-                    data,
-                    "kind"
-                );
-
-            resultado.Type =
-                ObtenerString(
-                    data,
-                    "type"
-                );
-
-            resultado.Ip =
-                ObtenerString(
-                    data,
-                    "ip"
-                );
-
-            resultado.Port =
-                ObtenerInt(
-                    data,
-                    "port"
-                );
-
-            resultado.Start =
-                ObtenerString(
-                    data,
-                    "start"
-                );
-
-            resultado.LastActivity =
-                ObtenerString(
-                    data,
-                    "last_activity"
-                );
-
-            resultado.Uptime =
-                ObtenerString(
-                    data,
-                    "uptime"
-                );
-
-            resultado.Subscriptions =
-                ObtenerInt(
-                    data,
-                    "subscriptions"
-                );
-
-            resultado.Lang =
-                ObtenerString(
-                    data,
-                    "lang"
-                );
-
-            resultado.Version =
-                ObtenerString(
-                    data,
-                    "version"
-                );
-
-            if (
-                data.ContainsKey(
-                    "subscriptions_list"
-                )
-            )
-            {
-                var lista =
-                    data["subscriptions_list"]
-                        as object[];
-
-                if (
-                    lista != null
-                )
-                {
-                    foreach (
-                        var item
-                        in lista
-                    )
-                    {
-                        if (
-                            item != null
-                        )
-                        {
-                            resultado
-                                .SubscriptionsList
-                                .Add(
-                                    item.ToString()
-                                );
-                        }
-                    }
-                }
-            }
-
-            return resultado;
-        }
-
-        // =====================================================
-        // HELPERS JSON
-        // =====================================================
-
-        private string ObtenerString(
-            Dictionary<string, object> data,
-            string key
-        )
-        {
-            if (
-                data == null
-                ||
-                !data.ContainsKey(
-                    key
-                )
-                ||
-                data[key] == null
-            )
-            {
-                return "";
-            }
-
-            return data[key].ToString();
-        }
-
-        private int ObtenerInt(
-            Dictionary<string, object> data,
-            string key
-        )
-        {
-            if (
-                data == null
-                ||
-                !data.ContainsKey(
-                    key
-                )
-                ||
-                data[key] == null
-            )
-            {
-                return 0;
-            }
-
-            int resultado;
-
-            if (
-                int.TryParse(
-                    data[key].ToString(),
-                    out resultado
-                )
-            )
-            {
-                return resultado;
-            }
-
-            return 0;
-        }
-
-        // =====================================================
-        // NATS PYTHON
-        // =====================================================
-
-        private void AnalizarNatsPython(
-            IntegrationStatus estado
-        )
-        {
-            if (
-                !File.Exists(
-                    NatsPythonLog
-                )
-            )
-            {
-                estado.Eventos.Add(
-                    new IntegrationEvent
-                    {
-                        Fecha =
-                            DateTime.Now,
-
-                        Tipo =
-                            "WARNING",
-
-                        Mensaje =
-                            "No se encontró el log de NATS Python: "
-                            + NatsPythonLog
-                    }
-                );
-
-                return;
-            }
-
-            string[] lineas;
-
-            try
-            {
-                lineas =
-                    File.ReadAllLines(
-                        NatsPythonLog
-                    );
-            }
-            catch (
-                Exception ex
-            )
-            {
-                estado.Eventos.Add(
-                    new IntegrationEvent
-                    {
-                        Fecha =
-                            DateTime.Now,
-
-                        Tipo =
-                            "ERROR",
-
-                        Mensaje =
-                            "No se pudo leer el log de NATS Python: "
-                            + ex.Message
-                    }
-                );
-
-                return;
-            }
-
-            foreach (
-                string linea
-                in lineas
-            )
-            {
-                if (
-                    linea.Contains(
-                        "Mensaje recibido desde NATS"
-                    )
-                )
-                {
-                    estado.Recibidos++;
-
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "INFO",
-                        "NATS Python recibió un mensaje"
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "Procesamiento del mensaje terminado correctamente"
-                    )
-                )
-                {
-                    estado.Procesados++;
-
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "OK",
-                        "NATS Python procesó un mensaje"
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "[ERROR]"
-                    )
-                )
-                {
-                    estado.Errores++;
-
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "ERROR",
-                        ExtraerMensaje(
-                            linea
-                        )
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "NATS conectado"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "OK",
-                        "NATS Python conectado"
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "NATS reconectado"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "WARNING",
-                        "NATS Python reconectado"
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "NATS desconectado"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "ERROR",
-                        "NATS Python desconectado"
-                    );
-                }
-            }
-        }
-
-        // =====================================================
-        // GITHUB
-        // =====================================================
-
-        private void AnalizarGitHub(
-            IntegrationStatus estado
-        )
-        {
-            if (
-                !File.Exists(
-                    GitHubLog
-                )
-            )
-            {
-                estado.Eventos.Add(
-                    new IntegrationEvent
-                    {
-                        Fecha =
-                            DateTime.Now,
-
-                        Tipo =
-                            "WARNING",
-
-                        Mensaje =
-                            "No se encontró el log de GitHub: "
-                            + GitHubLog
-                    }
-                );
-
-                return;
-            }
-
-            string[] lineas;
-
-            try
-            {
-                lineas =
-                    File.ReadAllLines(
-                        GitHubLog
-                    );
-            }
-            catch (
-                Exception ex
-            )
-            {
-                estado.Eventos.Add(
-                    new IntegrationEvent
-                    {
-                        Fecha =
-                            DateTime.Now,
-
-                        Tipo =
-                            "ERROR",
-
-                        Mensaje =
-                            "No se pudo leer el log de GitHub: "
-                            + ex.Message
-                    }
-                );
-
-                return;
-            }
-
-            foreach (
-                string linea
-                in lineas
-            )
-            {
-                if (
-                    linea.Contains(
-                        "[ERROR]"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "ERROR",
-                        ExtraerMensaje(
-                            linea
-                        )
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "Procesamiento"
-                    )
-                    ||
-                    linea.Contains(
-                        "procesado"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "OK",
-                        ExtraerMensaje(
-                            linea
-                        )
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "NATS conectado"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "OK",
-                        "GitHub Push conectado a NATS"
-                    );
-                }
-
-                if (
-                    linea.Contains(
-                        "NATS reconectado"
-                    )
-                )
-                {
-                    AgregarEvento(
-                        estado,
-                        linea,
-                        "WARNING",
-                        "GitHub Push reconectado a NATS"
-                    );
-                }
-            }
-        }
-
-        // =====================================================
-        // AGREGAR EVENTO
-        // =====================================================
-
-        private void AgregarEvento(
-            IntegrationStatus estado,
-            string linea,
-            string tipo,
-            string mensaje
-        )
-        {
-            DateTime fecha;
-
-            if (
-                !TryObtenerFecha(
-                    linea,
-                    out fecha
-                )
-            )
-            {
-                fecha =
-                    DateTime.Now;
-            }
-
-            estado.Eventos.Add(
-                new IntegrationEvent
-                {
-                    Fecha =
-                        fecha,
-
-                    Tipo =
-                        tipo,
-
-                    Mensaje =
-                        mensaje
-                }
-            );
-
-            if (
-                mensaje.Contains(
-                    "recibió un mensaje"
-                )
-            )
-            {
-                estado.UltimoMensaje =
-                    fecha;
-            }
-        }
-
-        // =====================================================
-        // FECHA
-        // =====================================================
-
-        private bool TryObtenerFecha(
-            string linea,
-            out DateTime fecha
-        )
-        {
-            fecha =
-                DateTime.MinValue;
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    linea
-                )
-            )
-            {
-                return false;
-            }
-
-            string patron =
-                @"^(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2})";
-
-            Match match =
-                Regex.Match(
-                    linea,
-                    patron
-                );
-
-            if (
-                !match.Success
-            )
-            {
-                return false;
-            }
-
-            return DateTime.TryParse(
-                match.Groups[1].Value
-                + " "
-                + match.Groups[2].Value,
-                out fecha
-            );
-        }
-
-        // =====================================================
-        // EXTRAER MENSAJE
-        // =====================================================
-
-        private string ExtraerMensaje(
-            string linea
-        )
-        {
-            Match match =
-                Regex.Match(
-                    linea,
-                    @"\[(.*?)\]\s+(.*)$"
-                );
-
-            if (
-                match.Success
-            )
-            {
-                return match.Groups[2].Value;
-            }
-
-            return linea;
         }
     }
 }

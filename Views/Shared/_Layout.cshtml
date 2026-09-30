@@ -10,7 +10,14 @@
     @Styles.Render("~/Content/css")
     @Scripts.Render("~/bundles/modernizr")
 
+    <!-- ================================================= -->
+    <!-- JQUERY -->
+    <!-- ================================================= -->
+
+    @Scripts.Render("~/bundles/jquery")
+
 </head>
+
 <body>
 
     <!-- ================================================= -->
@@ -43,7 +50,6 @@
                 )
 
             </div>
-
 
             <div class="navbar-collapse collapse">
 
@@ -93,7 +99,6 @@
     <!-- SCRIPTS -->
     <!-- ================================================= -->
 
-    @Scripts.Render("~/bundles/jquery")
     @Scripts.Render("~/bundles/bootstrap")
 
     @RenderSection(

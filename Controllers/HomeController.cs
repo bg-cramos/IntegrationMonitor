@@ -7,7 +7,8 @@ namespace IntegrationMonitor.Controllers
     public class HomeController : Controller
     {
         private readonly MonitorService _monitorService =
-        new MonitorService();
+            new MonitorService();
+
 
         // =====================================================
         // INICIO
@@ -40,60 +41,16 @@ namespace IntegrationMonitor.Controllers
 
 
         // =====================================================
-        // LOG
+        // MONITOR NATS
         // =====================================================
 
         [HttpGet]
         public ActionResult Logs(
             int cid,
-            string subject,
-            string consumer)
+            string subject)
         {
-            // -------------------------------------------------
-            // NORMALIZAR DATOS
-            // -------------------------------------------------
-
             subject =
                 (subject ?? "").Trim();
-
-            consumer =
-                (consumer ?? "").Trim();
-
-
-            // -------------------------------------------------
-            // OBTENER LOG
-            // -------------------------------------------------
-
-            var logInfo =
-                _monitorService.ObtenerLog(
-                    cid,
-                    subject,
-                    consumer
-                );
-
-
-            // -------------------------------------------------
-            // DETERMINAR NOMBRE DEL CONSUMER
-            // -------------------------------------------------
-
-            string consumerName =
-                logInfo.ConsumerName;
-
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    consumerName
-                )
-            )
-            {
-                consumerName =
-                    consumer;
-            }
-
-
-            // -------------------------------------------------
-            // MODEL
-            // -------------------------------------------------
 
             var model =
                 new LogViewModel
@@ -102,86 +59,34 @@ namespace IntegrationMonitor.Controllers
                         cid,
 
                     Subject =
-                        subject,
-
-                    Consumer =
-                        logInfo.Consumer,
-
-                    ConsumerName =
-                        consumerName,
-
-                    LogFile =
-                        logInfo.LogFile,
-
-                    LineasLog =
-                        logInfo.LineasLog
+                        subject
                 };
-
 
             return View(model);
         }
 
 
         // =====================================================
-        // LIMPIAR LOG
+        // MENSAJE NATS
         // =====================================================
 
-        [HttpPost]
-        public JsonResult LimpiarLog(
+        [HttpGet]
+        public JsonResult MensajeNats(
             int cid,
             string subject,
-            string consumer)
+            long ultimoMensajeId = 0)
         {
-            // -------------------------------------------------
-            // NORMALIZAR DATOS
-            // -------------------------------------------------
-
-            subject =
-                (subject ?? "").Trim();
-
-            consumer =
-                (consumer ?? "").Trim();
-
-
-            // -------------------------------------------------
-            // VALIDAR CONSUMER
-            // -------------------------------------------------
-
-            if (
-                string.IsNullOrWhiteSpace(
-                    consumer
-                )
-            )
-            {
-                return Json(
-                    new
-                    {
-                        ok = false,
-
-                        mensaje =
-                            "No se recibió el Consumer del log."
-                    }
-                );
-            }
-
-
-            // -------------------------------------------------
-            // LIMPIAR LOG
-            // -------------------------------------------------
-
             var resultado =
-                _monitorService.LimpiarLog(
+                _monitorService.ObtenerUltimoMensaje(
                     cid,
                     subject,
-                    consumer
+                    ultimoMensajeId
                 );
 
-
             return Json(
-                resultado
+                resultado,
+                JsonRequestBehavior.AllowGet
             );
         }
     }
-
-
 }
